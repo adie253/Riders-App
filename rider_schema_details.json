@@ -1,0 +1,356 @@
+{
+  "RallyAPI.Delivery.Application.DTOs.RiderInfoDto": {
+    "type": "object",
+    "properties": {
+      "riderId": {
+        "type": "string",
+        "format": "uuid",
+        "nullable": true
+      },
+      "name": {
+        "type": "string",
+        "nullable": true
+      },
+      "phone": {
+        "type": "string",
+        "nullable": true
+      },
+      "trackingUrl": {
+        "type": "string",
+        "nullable": true
+      },
+      "isOwnFleet": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Application.DTOs.RiderOfferDto": {
+    "type": "object",
+    "properties": {
+      "offerId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "deliveryRequestId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "orderNumber": {
+        "type": "string",
+        "nullable": true
+      },
+      "restaurantName": {
+        "type": "string",
+        "nullable": true
+      },
+      "pickupAddress": {
+        "type": "string",
+        "nullable": true
+      },
+      "pickupLatitude": {
+        "type": "number",
+        "format": "double"
+      },
+      "pickupLongitude": {
+        "type": "number",
+        "format": "double"
+      },
+      "dropAddress": {
+        "type": "string",
+        "nullable": true
+      },
+      "dropLatitude": {
+        "type": "number",
+        "format": "double"
+      },
+      "dropLongitude": {
+        "type": "number",
+        "format": "double"
+      },
+      "distanceToPickupKm": {
+        "type": "number",
+        "format": "double"
+      },
+      "distanceToDropKm": {
+        "type": "number",
+        "format": "double"
+      },
+      "totalDistanceKm": {
+        "type": "number",
+        "format": "double"
+      },
+      "earnings": {
+        "type": "number",
+        "format": "double"
+      },
+      "expiresInSeconds": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "expiresAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "isFoodReady": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Application.DTOs.TrackingRiderDto": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "nullable": true
+      },
+      "phone": {
+        "type": "string",
+        "nullable": true
+      },
+      "isOwnFleet": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Endpoints.RejectOfferRequest": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Endpoints.Requests.MarkDeliveredRequest": {
+    "required": [
+      "dropCode"
+    ],
+    "type": "object",
+    "properties": {
+      "dropCode": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Endpoints.Requests.MarkFailedRequest": {
+    "required": [
+      "reason"
+    ],
+    "type": "object",
+    "properties": {
+      "reason": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Domain.Enums.DeliveryFailureReason"
+      },
+      "notes": {
+        "type": "string",
+        "nullable": true
+      },
+      "photoUrl": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Delivery.Endpoints.Requests.MarkPickedUpRequest": {
+    "required": [
+      "pickupCode"
+    ],
+    "type": "object",
+    "properties": {
+      "pickupCode": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Orders.Application.DTOs.Requests.AssignRiderRequest": {
+    "type": "object",
+    "properties": {
+      "riderId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "riderName": {
+        "type": "string",
+        "nullable": true
+      },
+      "riderPhone": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Domain.Entities.RiderKycDocumentType": {
+    "enum": [
+      "AadhaarFront",
+      "AadhaarBack",
+      "DrivingLicense",
+      "VehicleRC"
+    ],
+    "type": "string"
+  },
+  "RallyAPI.Users.Endpoints.Admins.AdminAssignRider.AdminAssignRiderRequest": {
+    "type": "object",
+    "properties": {
+      "riderId": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Admins.CreateRider.CreateRiderRequest": {
+    "type": "object",
+    "properties": {
+      "phone": {
+        "type": "string",
+        "nullable": true
+      },
+      "name": {
+        "type": "string",
+        "nullable": true
+      },
+      "vehicleType": {
+        "type": "string",
+        "nullable": true
+      },
+      "vehicleNumber": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Admins.HoldRiderPayout.HoldRequest": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Admins.UpdateRiderKycStatusRequest": {
+    "type": "object",
+    "properties": {
+      "newKycStatus": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Domain.Enums.KycStatus"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Dev.SeedUsers.SeedRiderRequest": {
+    "type": "object",
+    "properties": {
+      "phone": {
+        "type": "string",
+        "nullable": true
+      },
+      "name": {
+        "type": "string",
+        "nullable": true
+      },
+      "vehicleType": {
+        "type": "string",
+        "nullable": true
+      },
+      "vehicleNumber": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.SendRiderOtpRequest": {
+    "type": "object",
+    "properties": {
+      "phoneNumber": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.UpdateProfile.ConfirmKycRequest": {
+    "type": "object",
+    "properties": {
+      "fileKey": {
+        "type": "string",
+        "nullable": true
+      },
+      "documentType": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Domain.Entities.RiderKycDocumentType"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.UpdateProfile.GenerateKycUploadUrlRequest": {
+    "type": "object",
+    "properties": {
+      "contentType": {
+        "type": "string",
+        "nullable": true
+      },
+      "documentType": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Domain.Entities.RiderKycDocumentType"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.UpdateRiderLocationRequest": {
+    "type": "object",
+    "properties": {
+      "latitude": {
+        "type": "number",
+        "format": "double"
+      },
+      "longitude": {
+        "type": "number",
+        "format": "double"
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.UpdateRiderProfileRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "nullable": true
+      },
+      "email": {
+        "type": "string",
+        "nullable": true
+      },
+      "vehicleNumber": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "RallyAPI.Users.Endpoints.Riders.VerifyRiderOtpRequest": {
+    "type": "object",
+    "properties": {
+      "phoneNumber": {
+        "type": "string",
+        "nullable": true
+      },
+      "otp": {
+        "type": "string",
+        "nullable": true
+      }
+    },
+    "additionalProperties": false
+  }
+}

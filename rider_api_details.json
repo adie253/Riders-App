@@ -1,0 +1,548 @@
+{
+  "/api/admin/orders/{orderId}/assign-rider": {
+    "post": {
+      "summary": "Manually assign a rider to an order (admin panel)",
+      "parameters": [
+        {
+          "name": "orderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Admins.AdminAssignRider.AdminAssignRiderRequest"
+      }
+    }
+  },
+  "/api/admins/riders": {
+    "post": {
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Admins.CreateRider.CreateRiderRequest"
+      }
+    },
+    "get": {
+      "summary": "List all riders with optional filtering by online status and KYC status",
+      "parameters": [
+        {
+          "name": "isOnline",
+          "in": "query",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "kycStatus",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1
+          }
+        },
+        {
+          "name": "pageSize",
+          "in": "query",
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20
+          }
+        }
+      ]
+    }
+  },
+  "/api/riders/{riderId}/kyc-documents": {
+    "get": {
+      "parameters": [
+        {
+          "name": "riderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/admins/riders/{riderId}": {
+    "get": {
+      "summary": "Get full rider profile and status for admin panel",
+      "parameters": [
+        {
+          "name": "riderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/admin/payouts/rider": {
+    "get": {
+      "summary": "Paged rider payouts list with date/rider/status filters (admin panel)",
+      "parameters": [
+        {
+          "name": "from",
+          "in": "query",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "riderId",
+          "in": "query",
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1
+          }
+        },
+        {
+          "name": "pageSize",
+          "in": "query",
+          "schema": {
+            "type": "integer",
+            "format": "int32",
+            "default": 20
+          }
+        }
+      ]
+    }
+  },
+  "/api/admin/payouts/rider/summary": {
+    "get": {
+      "summary": "Stats bar for the rider payouts page (admin panel)"
+    }
+  },
+  "/api/admin/payouts/rider/{payoutId}/pay-now": {
+    "post": {
+      "summary": "Trigger immediate rider payout via gateway (admin panel)",
+      "parameters": [
+        {
+          "name": "payoutId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/admin/payouts/rider/{payoutId}/hold": {
+    "post": {
+      "summary": "Pause a Pending rider payout (admin panel)",
+      "parameters": [
+        {
+          "name": "payoutId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Admins.HoldRiderPayout.HoldRequest"
+      }
+    }
+  },
+  "/api/admin/payouts/rider/{payoutId}/release-hold": {
+    "post": {
+      "summary": "Release a rider payout from hold back to Pending (admin panel)",
+      "parameters": [
+        {
+          "name": "payoutId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/admin/payouts/rider/{payoutId}/retry": {
+    "post": {
+      "summary": "Re-queue a Failed rider payout for the next auto-run (admin panel)",
+      "parameters": [
+        {
+          "name": "payoutId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/riders/{riderId}/kyc-status": {
+    "patch": {
+      "summary": "Approve or reject a rider's KYC (admin)",
+      "parameters": [
+        {
+          "name": "riderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Admins.UpdateRiderKycStatusRequest"
+      }
+    }
+  },
+  "/api/catalog/restaurants/{restaurantId}/delivery-check": {
+    "get": {
+      "summary": "Check whether a restaurant can deliver to the given coordinates",
+      "parameters": [
+        {
+          "name": "restaurantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "lat",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        {
+          "name": "lng",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      ]
+    }
+  },
+  "/api/delivery/quote": {
+    "post": {
+      "summary": "Get delivery quote at checkout",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Endpoints.Requests.GetQuoteRequest"
+      }
+    }
+  },
+  "/api/delivery/orders/{orderId}/codes": {
+    "get": {
+      "summary": "Get pickup/drop OTP codes for an order",
+      "parameters": [
+        {
+          "name": "orderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/orders/{orderId}/assign-rider": {
+    "put": {
+      "summary": "Assign a rider to the order",
+      "parameters": [
+        {
+          "name": "orderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Orders.Application.DTOs.Requests.AssignRiderRequest"
+      }
+    }
+  },
+  "/api/restaurants/me/delivery": {
+    "patch": {
+      "summary": "Switch between Hivago delivery and self-delivery",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Restaurants.UpdateDelivery.UpdateDeliveryRequest"
+      }
+    }
+  },
+  "/api/rider/delivery/pending-offer": {
+    "get": {
+      "summary": "Get pending delivery offer for rider"
+    }
+  },
+  "/api/rider/delivery/offer/{offerId}/accept": {
+    "post": {
+      "summary": "Accept a delivery offer",
+      "parameters": [
+        {
+          "name": "offerId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/rider/delivery/offer/{offerId}/reject": {
+    "post": {
+      "summary": "Reject a delivery offer",
+      "parameters": [
+        {
+          "name": "offerId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Endpoints.RejectOfferRequest"
+      }
+    }
+  },
+  "/api/rider/delivery/{deliveryId}/arrived-pickup": {
+    "post": {
+      "summary": "Mark rider arrived at restaurant",
+      "parameters": [
+        {
+          "name": "deliveryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/rider/delivery/{deliveryId}/pickup": {
+    "post": {
+      "summary": "Mark order as picked up",
+      "parameters": [
+        {
+          "name": "deliveryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Endpoints.Requests.MarkPickedUpRequest"
+      }
+    }
+  },
+  "/api/rider/delivery/{deliveryId}/arrived-drop": {
+    "post": {
+      "summary": "Mark rider arrived at customer",
+      "parameters": [
+        {
+          "name": "deliveryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "/api/rider/delivery/{deliveryId}/delivered": {
+    "post": {
+      "summary": "Mark order as delivered",
+      "parameters": [
+        {
+          "name": "deliveryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Endpoints.Requests.MarkDeliveredRequest"
+      }
+    }
+  },
+  "/api/rider/delivery/{deliveryId}/failed": {
+    "post": {
+      "summary": "Mark delivery as failed",
+      "parameters": [
+        {
+          "name": "deliveryId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Delivery.Endpoints.Requests.MarkFailedRequest"
+      }
+    }
+  },
+  "/api/rider/delivery/current": {
+    "get": {
+      "summary": "Get rider's current active delivery"
+    }
+  },
+  "/api/riders/earnings": {
+    "get": {
+      "summary": "Get rider earnings summary (total/week/month + pending payout)"
+    }
+  },
+  "/api/riders/profile": {
+    "get": {
+      "summary": "Get rider profile"
+    },
+    "put": {
+      "summary": "Update rider profile",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.UpdateRiderProfileRequest"
+      }
+    }
+  },
+  "/api/riders/status/offline": {
+    "post": {
+      "summary": "Set rider status to offline"
+    }
+  },
+  "/api/riders/status/online": {
+    "post": {
+      "summary": "Set rider status to online"
+    }
+  },
+  "/api/riders/otp/send": {
+    "post": {
+      "summary": "Send OTP to rider phone",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.SendRiderOtpRequest"
+      }
+    }
+  },
+  "/api/riders/location": {
+    "post": {
+      "summary": "Update rider current location",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.UpdateRiderLocationRequest"
+      }
+    }
+  },
+  "/api/riders/otp/verify": {
+    "post": {
+      "summary": "Verify OTP and get token",
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.VerifyRiderOtpRequest"
+      }
+    }
+  },
+  "/api/users/riders/{riderId}/kyc/upload-url": {
+    "post": {
+      "parameters": [
+        {
+          "name": "riderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.UpdateProfile.GenerateKycUploadUrlRequest"
+      }
+    }
+  },
+  "/api/users/riders/{riderId}/kyc/confirm": {
+    "patch": {
+      "parameters": [
+        {
+          "name": "riderId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "$ref": "#/components/schemas/RallyAPI.Users.Endpoints.Riders.UpdateProfile.ConfirmKycRequest"
+      }
+    }
+  }
+}
