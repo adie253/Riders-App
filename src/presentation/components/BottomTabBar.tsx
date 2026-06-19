@@ -32,7 +32,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({ navigation, activeTa
                 <TrendingUp size={24} color={getTabColor('earnings')} />
                 <Text style={[styles.tabText, activeTab === 'earnings' && styles.tabTextActive]}>Earnings</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => handlePress('offers')}>
+            <TouchableOpacity style={styles.tabItem} onPress={() => handlePress('offers', 'Offers')}>
                 <Gift size={24} color={getTabColor('offers')} />
                 <Text style={[styles.tabText, activeTab === 'offers' && styles.tabTextActive]}>Offers</Text>
             </TouchableOpacity>

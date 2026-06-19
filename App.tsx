@@ -18,6 +18,7 @@ import { DashboardScreen } from './src/presentation/screens/DashboardScreen';
 import { ActiveDeliveryScreen } from './src/presentation/screens/ActiveDeliveryScreen';
 import { EarningsScreen } from './src/presentation/screens/EarningsScreen';
 import { ProfileScreen } from './src/presentation/screens/ProfileScreen';
+import { OffersScreen } from './src/presentation/screens/OffersScreen';
 
 // Components
 import { PendingOfferModal } from './src/presentation/components/PendingOfferModal';
@@ -66,6 +67,7 @@ const AppNavigator = () => {
         <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} />
         <Stack.Screen name="Earnings" component={EarningsScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen name="Offers" component={OffersScreen} />
       </Stack.Navigator>
       <PendingOfferModal />
     </>
