@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getRiderProfile, updateRiderProfile, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc } from '../../data/api';
+import { getRiderProfile, updateRiderProfile, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus } from '../../data/api';
 import { useToast } from './ToastContext';
 
 export interface RiderProfile {
@@ -23,7 +23,7 @@ interface AuthContextType {
     sendOtpCode: (phoneNumber: string) => Promise<boolean>;
     verifyOtpCode: (phoneNumber: string, otp: string) => Promise<boolean>;
     updateProfile: (profileData: { name: string; email: string; vehicleNumber: string }) => Promise<boolean>;
-    uploadKyc: (documentType: string, fileUri: string) => Promise<boolean>;
+    uploadKyc: (documentType: string, fileUri: string, contentType?: string, onStatusChange?: (status: string) => void) => Promise<boolean>;
     refreshProfile: () => Promise<void>;
     logout: () => void;
 }
@@ -46,8 +46,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const storedToken = localStorage.getItem('rider_token');
             if (storedToken && isTokenValid()) {
                 setToken(storedToken);
-                // Fetch profile
-                const profile = await getRiderProfile();
+                // Fetch profile and real KYC status concurrently
+                const [profile, kycData] = await Promise.all([
+                    getRiderProfile(),
+                    getRiderKycStatus().catch(() => null) // Fallback if it fails
+                ]);
+                
+                // Merge real KYC status into the profile if available
+                if (kycData && kycData.kycStatus) {
+                    profile.kycStatus = kycData.kycStatus;
+                }
+                
                 setRiderProfile(profile);
             } else {
                 // Token invalid or missing
@@ -121,17 +130,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    const uploadKyc = async (documentType: string, fileUri: string): Promise<boolean> => {
+    const uploadKyc = async (
+        documentType: string, 
+        fileUri: string, 
+        contentType: string = 'image/jpeg',
+        onStatusChange?: (status: string) => void
+    ): Promise<boolean> => {
         if (!riderProfile) return false;
         try {
-            showToast(`Generating upload URL for ${documentType}...`, 'info');
+            onStatusChange?.('Generating upload URL...');
             
             // 1. Generate pre-signed URL from backend
-            const uploadDetails = await generateKycUploadUrl(riderProfile.id, documentType, 'image/jpeg');
+            const uploadDetails = await generateKycUploadUrl(riderProfile.id, documentType, contentType);
             const { uploadUrl, fileKey } = uploadDetails;
 
             // 2. Upload file to URL
-            showToast(`Uploading ${documentType} file...`, 'info');
+            onStatusChange?.('Uploading document...');
             // Since we are mocking the native upload or running in Expo client without a real S3 backend configure, 
             // we will simulate the PUT request or perform a fallback mock if the upload URL is empty/mocked.
             if (uploadUrl && uploadUrl.startsWith('http')) {
@@ -140,7 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 
                 const response = await fetch(uploadUrl, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'image/jpeg' },
+                    headers: { 'Content-Type': contentType },
                     body: blob
                 });
                 if (!response.ok) {
@@ -152,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             // 3. Confirm KYC document with backend
-            showToast(`Confirming ${documentType} with server...`, 'info');
+            onStatusChange?.('Confirming with server...');
             await confirmKyc(riderProfile.id, documentType, fileKey || 'mock-file-key');
             
             showToast(`${documentType} uploaded successfully!`, 'success');
@@ -167,8 +181,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const refreshProfile = async () => {
         try {
-            const profile = await getRiderProfile();
+            const [profile, kycData] = await Promise.all([
+                getRiderProfile(),
+                getRiderKycStatus().catch(() => null)
+            ]);
+
+            console.log("refreshProfile -> profile:", profile);
+            console.log("refreshProfile -> kycData:", kycData);
+
+            if (kycData && kycData.kycStatus) {
+                profile.kycStatus = kycData.kycStatus;
+            }
+
             setRiderProfile(profile);
+            console.log("refreshProfile -> riderProfile updated to:", profile);
         } catch (e) {
             console.warn('Failed to refresh rider profile:', e);
         }

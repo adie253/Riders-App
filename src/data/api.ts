@@ -1,4 +1,4 @@
-const BASE_URL = 'https://rally-staging-9ae8.up.railway.app/api';
+const BASE_URL = 'https://rally-staging-9ae8.up.railway.app/api/v1';
 
 export const sendRiderOtp = async (phoneNumber: string): Promise<any> => {
     try {
@@ -63,7 +63,17 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
     if (token && isTokenValid()) {
         headers.set('Authorization', `Bearer ${token}`);
     }
-    return fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
+    let finalEndpoint = endpoint;
+    // Prevent aggressive caching on mobile, especially iOS, by appending a timestamp to GET requests
+    if (!options.method || options.method.toUpperCase() === 'GET') {
+        finalEndpoint += (endpoint.includes('?') ? '&' : '?') + '_ts=' + Date.now();
+    }
+
+    const defaultOptions: RequestInit = {
+        ...options,
+        headers,
+    };
+    return fetch(`${BASE_URL}${finalEndpoint}`, defaultOptions);
 };
 
 export const getRiderProfile = async (): Promise<any> => {
@@ -278,13 +288,26 @@ export const getKycDocuments = async (riderId: string): Promise<any> => {
         return await response.json();
     } catch (error) {
         console.error('Error in getKycDocuments:', error);
-        return [];
+        return null;
+    }
+};
+
+// Self-service endpoint: GET /riders/kyc-status
+// Returns the authenticated rider's KYC status + all uploaded documents
+export const getRiderKycStatus = async (): Promise<any> => {
+    try {
+        const response = await authFetch('/riders/kyc-status');
+        if (!response.ok) throw new Error('Failed to fetch KYC status');
+        return await response.json();
+    } catch (error) {
+        console.error('Error in getRiderKycStatus:', error);
+        return null;
     }
 };
 
 export const generateKycUploadUrl = async (riderId: string, documentType: string, contentType: string = 'image/jpeg'): Promise<any> => {
     try {
-        const response = await authFetch(`/users/riders/${riderId}/kyc/upload-url`, {
+        const response = await authFetch(`/riders/${riderId}/kyc/upload-url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ contentType, documentType })
@@ -299,7 +322,7 @@ export const generateKycUploadUrl = async (riderId: string, documentType: string
 
 export const confirmKyc = async (riderId: string, documentType: string, fileKey: string): Promise<any> => {
     try {
-        const response = await authFetch(`/users/riders/${riderId}/kyc/confirm`, {
+        const response = await authFetch(`/riders/${riderId}/kyc/confirm`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fileKey, documentType })

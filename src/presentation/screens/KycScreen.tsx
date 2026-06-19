@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { FileText, CheckCircle2, Clock, AlertTriangle, Upload, ArrowRight, ShieldCheck, Landmark, User, CreditCard, HelpCircle, FileCheck, LogOut, RefreshCw } from 'lucide-react-native';
-import { getKycDocuments } from '../../data/api';
+import { FileText, CheckCircle2, Clock, AlertTriangle, Upload, ArrowRight, ShieldCheck, Landmark, User, CreditCard, HelpCircle, FileCheck, LogOut, RefreshCw, Lock, X, ArrowLeft } from 'lucide-react-native';
+import { getRiderKycStatus } from '../../data/api';
 import * as ImagePicker from 'expo-image-picker';
 
 type KycStep = 'documents' | 'bank' | 'review' | 'approved';
@@ -13,51 +13,98 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
     const { showToast } = useToast();
 
     const [currentScreen, setCurrentScreen] = useState<KycStep>('documents');
-    const [uploadStep, setUploadStep] = useState<number>(1); // 1: Aadhaar, 2: PAN, 3: Driving Licence
+    const [uploadStep, setUploadStep] = useState<number>(1); // 1: Aadhaar Front, 2: Aadhaar Back, 3: Driving Licence, 4: Vehicle RC
 
     // Document upload success flags (local simulation/mapping to backend)
-    const [aadhaarUploaded, setAadhaarUploaded] = useState(false);
-    const [panUploaded, setPanUploaded] = useState(false);
+    const [aadhaarFrontUploaded, setAadhaarFrontUploaded] = useState(false);
+    const [aadhaarBackUploaded, setAadhaarBackUploaded] = useState(false);
     const [licenceUploaded, setLicenceUploaded] = useState(false);
+    const [rcUploaded, setRcUploaded] = useState(false);
 
     // Bank account fields
     const [accountNumber, setAccountNumber] = useState('');
     const [ifscCode, setIfscCode] = useState('');
     const [bankName, setBankName] = useState('');
+    const [accountHolderName, setAccountHolderName] = useState('');
+    const [showValidationError, setShowValidationError] = useState(false);
+
+    useEffect(() => {
+        if (riderProfile) {
+            const acc = localStorage.getItem(`bank_acc_${riderProfile.id}`) || '';
+            const ifsc = localStorage.getItem(`bank_ifsc_${riderProfile.id}`) || '';
+            const bName = localStorage.getItem(`bank_name_${riderProfile.id}`) || '';
+            const holder = localStorage.getItem(`bank_holder_${riderProfile.id}`) || '';
+            
+            if (acc) setAccountNumber(acc);
+            if (ifsc) setIfscCode(ifsc);
+            if (bName) setBankName(bName);
+            if (holder) {
+                setAccountHolderName(holder);
+            } else if (riderProfile.name) {
+                setAccountHolderName(riderProfile.name);
+            }
+        }
+    }, [riderProfile]);
 
     const [loading, setLoading] = useState(false);
     const [alertMessage, setAlertMessage] = useState<string | null>(null);
+    const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+
+    const [hasLoadedInitialStatus, setHasLoadedInitialStatus] = useState(false);
 
     const loadServerKycStatus = async () => {
         if (!riderProfile) return;
         setLoading(true);
         try {
-            const docs = await getKycDocuments(riderProfile.id);
-            
-            // Check if documents are uploaded and not rejected
-            const isAadhaarDone = docs.some((d: any) => d.documentType === 'AadhaarFront' && d.status !== 'Rejected');
-            const isPanDone = docs.some((d: any) => d.documentType === 'VehicleRC' && d.status !== 'Rejected');
-            const isLicenceDone = docs.some((d: any) => d.documentType === 'DrivingLicense' && d.status !== 'Rejected');
+            // Load local flags as a fallback/cache
+            const localAadhaarFront = localStorage.getItem(`kyc_aadhaar_front_uploaded_${riderProfile.id}`) === 'true';
+            const localAadhaarBack = localStorage.getItem(`kyc_aadhaar_back_uploaded_${riderProfile.id}`) === 'true';
+            const localLicence = localStorage.getItem(`kyc_licence_uploaded_${riderProfile.id}`) === 'true';
+            const localRc = localStorage.getItem(`kyc_rc_uploaded_${riderProfile.id}`) === 'true';
 
-            setAadhaarUploaded(isAadhaarDone);
-            setPanUploaded(isPanDone);
+            // Use the self-service endpoint — no need to pass riderId
+            const kycData = await getRiderKycStatus();
+            // Response shape: { kycStatus, canGoOnline, lastSubmittedAt, documents: [...] }
+            const docs: any[] = kycData?.documents ?? (Array.isArray(kycData) ? kycData : []);
+
+            // Live kycStatus from server (real values: "NotStarted" | "Pending" | "Submitted" | "UnderReview" | "Verified" | "Rejected")
+            const serverKycStatus: string | undefined = kycData?.kycStatus;
+
+            // Documents have no "status" field — presence means uploaded.
+            // We only skip a doc if it's explicitly rejected via isVerified being explicitly a rejection marker.
+            // For now: a doc is "done" if it exists in the array (uploaded) OR is cached locally.
+            const isAadhaarFrontDone = docs.some((d: any) => d.documentType === 'AadhaarFront') || localAadhaarFront;
+            const isAadhaarBackDone = docs.some((d: any) => d.documentType === 'AadhaarBack') || localAadhaarBack;
+            const isLicenceDone = docs.some((d: any) => d.documentType === 'DrivingLicense') || localLicence;
+            const isRcDone = docs.some((d: any) => d.documentType === 'VehicleRC') || localRc;
+
+            setAadhaarFrontUploaded(isAadhaarFrontDone);
+            setAadhaarBackUploaded(isAadhaarBackDone);
             setLicenceUploaded(isLicenceDone);
+            setRcUploaded(isRcDone);
 
             // Determine active step based on what's missing
-            if (!isAadhaarDone) {
+            if (!isAadhaarFrontDone) {
                 setUploadStep(1);
-            } else if (!isPanDone) {
+            } else if (!isAadhaarBackDone) {
                 setUploadStep(2);
             } else if (!isLicenceDone) {
                 setUploadStep(3);
+            } else if (!isRcDone) {
+                setUploadStep(4);
             }
 
-            // Determine screen based on upload completion and profile status
-            if (riderProfile.kycStatus === 'Approved') {
+            // Prefer live server kycStatus over cached profile value
+            const effectiveKycStatus = serverKycStatus ?? riderProfile.kycStatus;
+
+            // "Verified" is the real backend value for fully approved
+            if (effectiveKycStatus === 'Verified') {
                 setCurrentScreen('approved');
-            } else if (isAadhaarDone && isPanDone && isLicenceDone) {
-                // Check if they need to submit bank details or if it is already submitted and under review
-                if (riderProfile.kycStatus === 'Pending') {
+            } else if (isAadhaarFrontDone && isAadhaarBackDone && isLicenceDone && isRcDone) {
+                // All docs uploaded — check if bank was submitted or if KYC is under review
+                const isBankSubmittedLocal = localStorage.getItem(`bank_submitted_${riderProfile.id}`) === 'true';
+                const isUnderReview = ['Pending', 'Submitted', 'UnderReview'].includes(effectiveKycStatus ?? '');
+                if (isUnderReview || isBankSubmittedLocal) {
                     setCurrentScreen('review');
                 } else {
                     setCurrentScreen('bank');
@@ -72,10 +119,13 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
         }
     };
 
-    // Sync with backend status on mount or profile refresh
+    // Sync with backend status once when profile loads
     useEffect(() => {
-        loadServerKycStatus();
-    }, [riderProfile]);
+        if (riderProfile && !hasLoadedInitialStatus) {
+            loadServerKycStatus();
+            setHasLoadedInitialStatus(true);
+        }
+    }, [riderProfile, hasLoadedInitialStatus]);
 
     const pickImage = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -92,43 +142,66 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
         });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            return result.assets[0].uri;
+            const asset = result.assets[0];
+            let contentType = 'image/jpeg';
+            if (asset.mimeType) {
+                contentType = asset.mimeType;
+            } else if (asset.uri) {
+                const ext = asset.uri.split('.').pop()?.toLowerCase();
+                if (ext === 'png') contentType = 'image/png';
+                else if (ext === 'webp') contentType = 'image/webp';
+            }
+            return { uri: asset.uri, contentType };
         }
         return null;
     };
 
     const handleUploadDocument = async () => {
-        const imageUri = await pickImage();
-        if (!imageUri) return;
+        if (!riderProfile) return;
+        const pickerResult = await pickImage();
+        if (!pickerResult) return;
+        const { uri: imageUri, contentType } = pickerResult;
 
         setLoading(true);
+        setUploadStatus('Preparing upload...');
         try {
             // We map the steps to our backend RiderKycDocumentType:
-            // Step 1: Aadhaar Card -> AadhaarFront
-            // Step 2: PAN Card -> VehicleRC (since PAN is not in enum, we use VehicleRC)
+            // Step 1: Aadhaar Front -> AadhaarFront
+            // Step 2: Aadhaar Back -> AadhaarBack
             // Step 3: Driving Licence -> DrivingLicense
+            // Step 4: Vehicle RC -> VehicleRC
             let docType = 'AadhaarFront';
-            let docLabel = 'Aadhaar Card';
+            let docLabel = 'Aadhaar Front';
             if (uploadStep === 2) {
-                docType = 'VehicleRC';
-                docLabel = 'PAN Card';
+                docType = 'AadhaarBack';
+                docLabel = 'Aadhaar Back';
             } else if (uploadStep === 3) {
                 docType = 'DrivingLicense';
                 docLabel = 'Driving Licence';
+            } else if (uploadStep === 4) {
+                docType = 'VehicleRC';
+                docLabel = 'Vehicle RC';
             }
 
-            const success = await uploadKyc(docType, imageUri);
+            const success = await uploadKyc(docType, imageUri, contentType, setUploadStatus);
             
             if (success) {
                 setAlertMessage(`${docLabel} uploaded successfully!`);
                 if (uploadStep === 1) {
-                    setAadhaarUploaded(true);
+                    setAadhaarFrontUploaded(true);
+                    localStorage.setItem(`kyc_aadhaar_front_uploaded_${riderProfile.id}`, 'true');
                     setUploadStep(2);
                 } else if (uploadStep === 2) {
-                    setPanUploaded(true);
+                    setAadhaarBackUploaded(true);
+                    localStorage.setItem(`kyc_aadhaar_back_uploaded_${riderProfile.id}`, 'true');
                     setUploadStep(3);
                 } else if (uploadStep === 3) {
                     setLicenceUploaded(true);
+                    localStorage.setItem(`kyc_licence_uploaded_${riderProfile.id}`, 'true');
+                    setUploadStep(4);
+                } else if (uploadStep === 4) {
+                    setRcUploaded(true);
+                    localStorage.setItem(`kyc_rc_uploaded_${riderProfile.id}`, 'true');
                 }
                 showToast(`${docLabel} Uploaded`, 'success');
             }
@@ -136,6 +209,7 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
             showToast('Document upload failed', 'error');
         } finally {
             setLoading(false);
+            setUploadStatus(null);
         }
     };
 
@@ -155,16 +229,26 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
     };
 
     const handleBankSubmit = async () => {
-        if (!accountNumber || !ifscCode) {
+        if (!riderProfile) return;
+        if (!accountHolderName || !accountNumber || !ifscCode || !bankName) {
+            setShowValidationError(true);
             showToast('Please fill all bank details', 'warning');
             return;
         }
+        setShowValidationError(false);
         setLoading(true);
+        setUploadStatus('Submitting details...');
         try {
-            // Simulate sending bank details to the profile.
-            // On the server we upload it as AadhaarBack since there's no bank model,
-            // or confirm it, keeping status pending.
-            await uploadKyc('AadhaarBack', `https://picsum.photos/bank-mock?acc=${accountNumber}&ifsc=${ifscCode}`);
+            // Simulate sending bank details to the profile safely (no S3 file overwrite)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Persist submitted status and values locally
+            localStorage.setItem(`bank_submitted_${riderProfile.id}`, 'true');
+            localStorage.setItem(`bank_acc_${riderProfile.id}`, accountNumber);
+            localStorage.setItem(`bank_ifsc_${riderProfile.id}`, ifscCode);
+            localStorage.setItem(`bank_name_${riderProfile.id}`, bankName);
+            localStorage.setItem(`bank_holder_${riderProfile.id}`, accountHolderName);
+
             setAlertMessage('Bank details submitted successfully!');
             showToast('Bank Details Submitted', 'success');
             setCurrentScreen('review');
@@ -174,6 +258,7 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
             showToast('Failed to submit bank details', 'error');
         } finally {
             setLoading(false);
+            setUploadStatus(null);
         }
     };
 
@@ -188,13 +273,80 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
     // Calculate progress percentage
     const getProgressPercent = () => {
         let count = 0;
-        if (aadhaarUploaded) count += 33;
-        if (panUploaded) count += 33;
-        if (licenceUploaded) count += 34;
+        if (aadhaarFrontUploaded) count += 25;
+        if (aadhaarBackUploaded) count += 25;
+        if (licenceUploaded) count += 25;
+        if (rcUploaded) count += 25;
         return count;
     };
 
-    const isAllDocsUploaded = aadhaarUploaded && panUploaded && licenceUploaded;
+    const isAllDocsUploaded = aadhaarFrontUploaded && aadhaarBackUploaded && licenceUploaded && rcUploaded;
+
+    const getGuidelines = () => {
+        if (uploadStep === 1) {
+            return [
+                'Clear front side photo of Aadhaar card',
+                'All 12 digits must be visible',
+                'Name and photo should be clear',
+                'Take photo in good lighting'
+            ];
+        }
+        if (uploadStep === 2) {
+            return [
+                'Clear back side photo of Aadhaar card',
+                'Address must be clearly visible and legible',
+                'No blur or glare on card',
+                'Take photo in good lighting'
+            ];
+        }
+        if (uploadStep === 3) {
+            return [
+                'Front side of licence showing photo',
+                'Licence number clearly visible',
+                'Valid (not expired)',
+                'Two-wheeler category must be present'
+            ];
+        }
+        return [
+            'Clear photo of Vehicle RC (Registration Certificate)',
+            'Registration number and owner name visible',
+            'Valid (not expired)',
+            'Make sure vehicle class matches two-wheeler'
+        ];
+    };
+
+    const getStepDetails = () => {
+        if (uploadStep === 1) {
+            return {
+                title: 'Aadhaar Card (Front)',
+                subtext: 'Government Issued ID proof (Front side)',
+                badge: 'Required',
+                buttonLabel: 'Upload Aadhaar Front'
+            };
+        }
+        if (uploadStep === 2) {
+            return {
+                title: 'Aadhaar Card (Back)',
+                subtext: 'Government Issued ID proof (Back side)',
+                badge: 'Required',
+                buttonLabel: 'Upload Aadhaar Back'
+            };
+        }
+        if (uploadStep === 3) {
+            return {
+                title: 'Driving Licence',
+                subtext: 'Valid driving licence',
+                badge: 'Required',
+                buttonLabel: 'Upload Driving Licence'
+            };
+        }
+        return {
+            title: 'Vehicle RC',
+            subtext: 'Vehicle Registration Certificate',
+            badge: 'Required',
+            buttonLabel: 'Upload Vehicle RC'
+        };
+    };
 
     return (
         <KeyboardAvoidingView 
@@ -222,11 +374,16 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                 </View>
             )}
 
-            <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 
                 {/* SCREEN 1: Documents Upload Flow */}
                 {currentScreen === 'documents' && (
                     <View style={styles.contentBlock}>
+                        {/* Figma style Top Step Indicator */}
+                        <Text style={styles.stepInfoText}>
+                            Step {Math.min(uploadStep, 4)} of 4 • Document Details
+                        </Text>
+                        
                         {/* Progress Indicator */}
                         <View style={styles.progressHeader}>
                             <Text style={styles.progressLabel}>Upload Documents</Text>
@@ -236,48 +393,49 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                             <View style={[styles.progressBarFill, { width: `${getProgressPercent()}%` }]} />
                         </View>
 
-                        {/* Illustration Container */}
-                        <View style={styles.illustrationWrapper}>
-                            <View style={styles.illustrationBlob} />
-                            <FileText size={72} color="#A30D11" />
-                        </View>
+                        <Text style={styles.documentSubtitle}>
+                            Complete one step at a time to complete your verification
+                        </Text>
 
-                        {/* Status Check List of Uploaded Documents */}
-                        <View style={styles.uploadedChecklist}>
-                            {aadhaarUploaded && (
-                                <View style={styles.checklistItem}>
-                                    <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 6 }} />
-                                    <Text style={styles.checklistText}>Aadhaar Card uploaded</Text>
+                        {/* Figma style Upload Successful Checklist Container */}
+                        {(aadhaarFrontUploaded || aadhaarBackUploaded || licenceUploaded || rcUploaded) && (
+                            <View style={styles.uploadSuccessBox}>
+                                <View style={styles.successHeaderRow}>
+                                    <CheckCircle2 size={18} color="#10B981" style={{ marginRight: 8 }} />
+                                    <Text style={styles.successTitleText}>Upload Successful</Text>
                                 </View>
-                            )}
-                            {panUploaded && (
-                                <View style={styles.checklistItem}>
-                                    <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 6 }} />
-                                    <Text style={styles.checklistText}>PAN Card uploaded</Text>
+                                <View style={styles.successList}>
+                                    {aadhaarFrontUploaded && (
+                                        <Text style={styles.successListItemText}>1. Aadhaar Front Uploaded</Text>
+                                    )}
+                                    {aadhaarBackUploaded && (
+                                        <Text style={styles.successListItemText}>2. Aadhaar Back Uploaded</Text>
+                                    )}
+                                    {licenceUploaded && (
+                                        <Text style={styles.successListItemText}>3. Driving Licence Uploaded</Text>
+                                    )}
+                                    {rcUploaded && (
+                                        <Text style={styles.successListItemText}>4. Vehicle RC Uploaded</Text>
+                                    )}
                                 </View>
-                            )}
-                            {licenceUploaded && (
-                                <View style={styles.checklistItem}>
-                                    <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 6 }} />
-                                    <Text style={styles.checklistText}>Driving Licence uploaded</Text>
-                                </View>
-                            )}
-                        </View>
+                            </View>
+                        )}
 
                         {/* Active Document Step Card */}
                         {!isAllDocsUploaded ? (
                             <View style={styles.stepCard}>
                                 <View style={styles.stepHeaderRow}>
-                                    <View style={styles.stepBadge}>
-                                        <Text style={styles.stepBadgeText}>Step {uploadStep}</Text>
+                                    <Text style={styles.stepNumberText}>Step {uploadStep}</Text>
+                                    <View style={{ flex: 1 }} />
+                                    <View style={[styles.statusBadge, styles.badgeRequired]}>
+                                        <Text style={styles.badgeRequiredText}>
+                                            Required
+                                        </Text>
                                     </View>
-                                    <Text style={styles.stepTitle}>
-                                        {uploadStep === 1 ? 'Aadhaar Card' : uploadStep === 2 ? 'PAN Card' : 'Driving Licence'}
-                                    </Text>
                                 </View>
-                                <Text style={styles.stepSub}>
-                                    {uploadStep === 1 ? 'Required for identity verification' : uploadStep === 2 ? 'Required for tax purposes' : 'Valid motor vehicle licence'}
-                                </Text>
+                                
+                                <Text style={styles.stepTitle}>{getStepDetails().title}</Text>
+                                <Text style={styles.stepSub}>{getStepDetails().subtext}</Text>
 
                                 <TouchableOpacity 
                                     style={styles.uploadTriggerButton}
@@ -290,31 +448,25 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                                         <>
                                             <Upload size={18} color="white" style={{ marginRight: 8 }} />
                                             <Text style={styles.uploadTriggerText}>
-                                                Upload {uploadStep === 1 ? 'Aadhaar Card' : uploadStep === 2 ? 'PAN Card' : 'Driving Licence'}
+                                                {getStepDetails().buttonLabel}
                                             </Text>
                                         </>
                                     )}
                                 </TouchableOpacity>
 
+                                {uploadStatus && (
+                                    <Text style={styles.inlineUploadStatusText}>{uploadStatus}</Text>
+                                )}
+
                                 {/* Photo Guidelines */}
                                 <View style={styles.guidelinesBox}>
                                     <Text style={styles.guidelinesTitle}>Photo Guidelines</Text>
-                                    <View style={styles.guidelineRow}>
-                                        <Text style={styles.guidelineBullet}>•</Text>
-                                        <Text style={styles.guidelineText}>Clear photo of front and back side of card</Text>
-                                    </View>
-                                    <View style={styles.guidelineRow}>
-                                        <Text style={styles.guidelineBullet}>•</Text>
-                                        <Text style={styles.guidelineText}>Name and digits should be clearly visible</Text>
-                                    </View>
-                                    <View style={styles.guidelineRow}>
-                                        <Text style={styles.guidelineBullet}>•</Text>
-                                        <Text style={styles.guidelineText}>No blurry or faded images</Text>
-                                    </View>
-                                    <View style={styles.guidelineRow}>
-                                        <Text style={styles.guidelineBullet}>•</Text>
-                                        <Text style={styles.guidelineText}>File size should be under 5MB</Text>
-                                    </View>
+                                    {getGuidelines().map((guideline, index) => (
+                                        <View key={index} style={styles.guidelineRow}>
+                                            <Text style={styles.guidelineBullet}>•</Text>
+                                            <Text style={styles.guidelineText}>{guideline}</Text>
+                                        </View>
+                                    ))}
                                 </View>
                             </View>
                         ) : (
@@ -325,25 +477,54 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                             </View>
                         )}
 
-                        <TouchableOpacity 
-                            style={[styles.primaryButton, !isAllDocsUploaded && styles.disabledButton]}
-                            disabled={!isAllDocsUploaded}
-                            onPress={() => {
-                                setAlertMessage(null);
-                                setCurrentScreen('bank');
-                            }}
-                        >
-                            <Text style={styles.primaryButtonText}>Continue to Bank Details</Text>
-                            <ArrowRight size={18} color="white" style={{ marginLeft: 6 }} />
-                        </TouchableOpacity>
+                        {/* Solid continue button if all uploaded, or outline continue button if Aadhaar & Licence uploaded */}
+                        {isAllDocsUploaded ? (
+                            <TouchableOpacity 
+                                style={styles.primaryButton}
+                                onPress={() => {
+                                    setAlertMessage(null);
+                                    setCurrentScreen('bank');
+                                }}
+                            >
+                                <Text style={styles.primaryButtonText}>Continue to Bank Details</Text>
+                                <ArrowRight size={18} color="white" style={{ marginLeft: 6 }} />
+                            </TouchableOpacity>
+                        ) : (aadhaarFrontUploaded && aadhaarBackUploaded && licenceUploaded) ? (
+                            <TouchableOpacity 
+                                style={styles.outlinePrimaryButton}
+                                onPress={() => {
+                                    setAlertMessage(null);
+                                    setCurrentScreen('bank');
+                                }}
+                            >
+                                <Text style={styles.outlinePrimaryButtonText}>Continue to Bank Details</Text>
+                                <ArrowRight size={18} color="#A30D11" style={{ marginLeft: 6 }} />
+                            </TouchableOpacity>
+                        ) : null}
                     </View>
                 )}
 
                 {/* SCREEN 2: Add Bank Details */}
                 {currentScreen === 'bank' && (
                     <View style={styles.contentBlock}>
-                        <Text style={styles.sectionTitle}>Add Bank Details</Text>
-                        <Text style={styles.sectionSubtitle}>Fill in your weekly earnings details to get paid</Text>
+                        {/* Figma Header with Back arrow */}
+                        <View style={styles.figmaHeader}>
+                            <TouchableOpacity 
+                                style={styles.backButtonRow}
+                                onPress={() => setCurrentScreen('documents')}
+                            >
+                                <ArrowLeft size={16} color="#6B7280" style={{ marginRight: 4 }} />
+                                <Text style={styles.backButtonText}>Back</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.figmaHeaderSub}>Document Verification</Text>
+                            <View style={styles.figmaHeaderTitleRow}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.figmaHeaderTitle}>Add Bank Details</Text>
+                                    <Text style={styles.figmaHeaderSubtitle}>Your weekly earnings will be deposited here</Text>
+                                </View>
+                                <CreditCard size={44} color="#A30D11" style={styles.figmaHeaderIcon} />
+                            </View>
+                        </View>
 
                         {/* Yellow Warning Info Box */}
                         <View style={styles.warningBox}>
@@ -351,68 +532,114 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.warningTitle}>Important Information</Text>
                                 <Text style={styles.warningText}>
-                                    Your actual name will be automatically populated into the bank account validation. Please verify validation details once.
+                                    Your weekly earnings will be automatically transferred to this bank account every Monday. Make sure all details are accurate.
                                 </Text>
                             </View>
                         </View>
 
-                        {/* Form Inputs */}
-                        <View style={styles.formGroup}>
-                            <Text style={styles.inputLabel}>Account Holder Name *</Text>
-                            <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
-                                <User size={18} color="#9CA3AF" style={{ marginRight: 10 }} />
-                                <TextInput 
-                                    style={[styles.input, styles.disabledInput]}
-                                    value={riderProfile?.name || 'Rider Profile Name'}
-                                    editable={false}
-                                />
+                        {/* Bank Account Information Card */}
+                        <View style={styles.bankInfoCard}>
+                            <View style={styles.bankInfoCardHeader}>
+                                <View style={styles.bankInfoIconWrapper}>
+                                    <Landmark size={18} color="#A30D11" />
+                                </View>
+                                <Text style={styles.bankInfoCardTitle}>Bank Account Information</Text>
+                            </View>
+
+                            {/* Account Holder Name */}
+                            <View style={styles.formGroup}>
+                                <Text style={styles.inputLabel}>Account Holder Name <Text style={{ color: '#EF4444' }}>*</Text></Text>
+                                <View style={styles.inputWrapper}>
+                                    <TextInput 
+                                        style={styles.input}
+                                        placeholder="Enter name as per bank account"
+                                        value={accountHolderName}
+                                        onChangeText={setAccountHolderName}
+                                        placeholderTextColor="#9CA3AF"
+                                    />
+                                </View>
+                                <Text style={styles.inputHint}>Must match exactly with name on your Aadhaar/PAN card</Text>
+                            </View>
+
+                            {/* Account Number */}
+                            <View style={styles.formGroup}>
+                                <Text style={styles.inputLabel}>Account Number <Text style={{ color: '#EF4444' }}>*</Text></Text>
+                                <View style={styles.inputWrapper}>
+                                    <Lock size={16} color="#9CA3AF" style={{ marginRight: 8 }} />
+                                    <TextInput 
+                                        style={styles.input}
+                                        placeholder="Enter your bank account number"
+                                        keyboardType="number-pad"
+                                        value={accountNumber}
+                                        onChangeText={setAccountNumber}
+                                        placeholderTextColor="#9CA3AF"
+                                    />
+                                </View>
+                                <Text style={styles.inputHint}>Enter 9 to 18 digit account number</Text>
+                            </View>
+
+                            {/* IFSC Code */}
+                            <View style={styles.formGroup}>
+                                <Text style={styles.inputLabel}>IFSC Code <Text style={{ color: '#EF4444' }}>*</Text></Text>
+                                <View style={styles.inputWrapper}>
+                                    <TextInput 
+                                        style={styles.input}
+                                        placeholder="e.g., SBIN0001234"
+                                        autoCapitalize="characters"
+                                        value={ifscCode}
+                                        onChangeText={handleIfscChange}
+                                        maxLength={11}
+                                        placeholderTextColor="#9CA3AF"
+                                    />
+                                </View>
+                                <Text style={styles.inputHint}>11-character IFSC code (found on your cheque book or passbook)</Text>
+                            </View>
+
+                            {/* Bank Name */}
+                            <View style={styles.formGroup}>
+                                <Text style={styles.inputLabel}>Bank Name <Text style={{ color: '#EF4444' }}>*</Text></Text>
+                                <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
+                                    <TextInput 
+                                        style={[styles.input, styles.disabledInput]}
+                                        placeholder="e.g., State Bank of India, HDFC Bank, ICICI Bank"
+                                        value={bankName}
+                                        editable={false}
+                                        placeholderTextColor="#9CA3AF"
+                                    />
+                                </View>
                             </View>
                         </View>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.inputLabel}>Bank Account Number *</Text>
-                            <View style={styles.inputWrapper}>
-                                <CreditCard size={18} color="#9CA3AF" style={{ marginRight: 10 }} />
-                                <TextInput 
-                                    style={styles.input}
-                                    placeholder="Enter your bank account number"
-                                    keyboardType="number-pad"
-                                    value={accountNumber}
-                                    onChangeText={setAccountNumber}
-                                    placeholderTextColor="#9CA3AF"
-                                />
+                        {/* Need Help Card */}
+                        <View style={styles.helpCard}>
+                            <Text style={styles.helpTitle}>Need Help?</Text>
+                            <View style={styles.helpRow}>
+                                <Text style={styles.helpBullet}>•</Text>
+                                <Text style={styles.helpText}>IFSC code is printed on your cheque book</Text>
+                            </View>
+                            <View style={styles.helpRow}>
+                                <Text style={styles.helpBullet}>•</Text>
+                                <Text style={styles.helpText}>You can also find it in your bank passbook</Text>
+                            </View>
+                            <View style={styles.helpRow}>
+                                <Text style={styles.helpBullet}>•</Text>
+                                <Text style={styles.helpText}>Or check your net banking / mobile banking app</Text>
                             </View>
                         </View>
 
-                        <View style={styles.formGroup}>
-                            <Text style={styles.inputLabel}>IFSC Code *</Text>
-                            <View style={styles.inputWrapper}>
-                                <Landmark size={18} color="#9CA3AF" style={{ marginRight: 10 }} />
-                                <TextInput 
-                                    style={styles.input}
-                                    placeholder="e.g. HDFC0001234"
-                                    autoCapitalize="characters"
-                                    value={ifscCode}
-                                    onChangeText={handleIfscChange}
-                                    maxLength={11}
-                                    placeholderTextColor="#9CA3AF"
-                                />
+                        {/* Validation Error Alert Box (if visible) */}
+                        {showValidationError && (
+                            <View style={styles.validationErrorBox}>
+                                <AlertTriangle size={18} color="#EF4444" style={{ marginRight: 10 }} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.validationErrorTitle}>Fill All Required Fields</Text>
+                                    <Text style={styles.validationErrorText}>All fields are mandatory for receiving payments</Text>
+                                </View>
+                                <TouchableOpacity onPress={() => setShowValidationError(false)}>
+                                    <X size={16} color="#6B7280" />
+                                </TouchableOpacity>
                             </View>
-                        </View>
-
-                        <View style={styles.formGroup}>
-                            <Text style={styles.inputLabel}>Bank Name *</Text>
-                            <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
-                                <Landmark size={18} color="#9CA3AF" style={{ marginRight: 10 }} />
-                                <TextInput 
-                                    style={[styles.input, styles.disabledInput]}
-                                    placeholder="Auto-populated on IFSC entry"
-                                    value={bankName}
-                                    editable={false}
-                                    placeholderTextColor="#9CA3AF"
-                                />
-                            </View>
-                        </View>
+                        )}
 
                         <TouchableOpacity 
                             style={styles.primaryButton}
@@ -422,65 +649,94 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                             {loading ? (
                                 <ActivityIndicator color="white" />
                             ) : (
-                                <Text style={styles.primaryButtonText}>Submit Bank Details</Text>
+                                <>
+                                    <Text style={styles.primaryButtonText}>Submit Bank Details</Text>
+                                    <ArrowRight size={18} color="white" style={{ marginLeft: 6 }} />
+                                </>
                             )}
                         </TouchableOpacity>
+
+                        {uploadStatus && (
+                            <Text style={styles.inlineUploadStatusText}>{uploadStatus}</Text>
+                        )}
                     </View>
                 )}
 
                 {/* SCREEN 3: Verification In Progress / Review */}
                 {currentScreen === 'review' && (
                     <View style={styles.contentBlock}>
-                        <View style={styles.illustrationWrapper}>
-                            <View style={styles.illustrationBlob} />
-                            <Clock size={72} color="#D97706" />
+                        {/* Header */}
+                        <View style={styles.figmaHeader}>
+                            <Text style={styles.figmaHeaderSub}>Document Verification</Text>
+                            <Text style={styles.figmaHeaderTitle}>Verification In Progress</Text>
+                            <Text style={styles.figmaHeaderSubtitle}>Your documents are being reviewed</Text>
                         </View>
 
-                        <Text style={styles.centerTitle}>Documents Under Verification</Text>
-                        <Text style={styles.centerSubtitle}>
-                            Verification takes up to 24-48 hours. Please check back later.
-                        </Text>
+                        {/* Clock illustration */}
+                        <View style={styles.centerClockContainer}>
+                            <View style={styles.centerClockWrapper}>
+                                <Clock size={40} color="#F59E0B" />
+                            </View>
+                            <Text style={styles.centerTitle}>Documents Under Verification</Text>
+                            <Text style={styles.centerSubtitle}>
+                                Please wait while we verify your documents
+                            </Text>
+                        </View>
 
-                        {/* Status timeline */}
-                        <View style={styles.timelineContainer}>
+                        {/* 3-step status timeline */}
+                        <View style={styles.timelineCard}>
+                            {/* Step 1 - Done */}
                             <View style={styles.timelineRow}>
                                 <CheckCircle2 size={20} color="#10B981" style={styles.timelineIcon} />
                                 <View style={styles.timelineBody}>
                                     <Text style={styles.timelineTitle}>Documents Submitted</Text>
-                                    <Text style={styles.timelineDesc}>All files uploaded successfully</Text>
+                                    <Text style={styles.timelineDesc}>Successfully uploaded</Text>
                                 </View>
                             </View>
                             <View style={styles.timelineLine} />
-                            
+
+                            {/* Step 2 - Active */}
                             <View style={styles.timelineRow}>
                                 <View style={styles.timelineActiveDotContainer}>
-                                    <RefreshCw size={14} color="#D97706" style={styles.spinIcon} />
+                                    <Clock size={12} color="#F59E0B" />
                                 </View>
                                 <View style={styles.timelineBody}>
-                                    <Text style={[styles.timelineTitle, { color: '#D97706' }]}>Verification In Progress</Text>
+                                    <Text style={[styles.timelineTitle, { color: '#F59E0B' }]}>Verification In Progress</Text>
                                     <Text style={styles.timelineDesc}>Our team is reviewing your documents</Text>
                                 </View>
                             </View>
                             <View style={styles.timelineLineInactive} />
 
+                            {/* Step 3 - Pending */}
                             <View style={styles.timelineRow}>
-                                <HelpCircle size={20} color="#9CA3AF" style={styles.timelineIcon} />
+                                <View style={styles.timelineInactiveDotContainer}>
+                                    <FileCheck size={12} color="#9CA3AF" />
+                                </View>
                                 <View style={styles.timelineBody}>
                                     <Text style={[styles.timelineTitle, { color: '#9CA3AF' }]}>Approval Pending</Text>
-                                    <Text style={styles.timelineDesc}>Ready to activate account</Text>
+                                    <Text style={styles.timelineDesc}>You'll be notified once approved</Text>
                                 </View>
                             </View>
                         </View>
 
-                        {/* Purple Note Box */}
-                        <View style={styles.purpleNoteBox}>
-                            <Text style={styles.purpleNoteTitle}>Important Note</Text>
-                            <Text style={styles.purpleNoteText}>
-                                Once verified, you will receive notifications. In case of rejection, you can re-upload.
+                        {/* Expected Wait Time card */}
+                        <View style={styles.waitTimeCard}>
+                            <View style={styles.waitTimeHeader}>
+                                <Clock size={14} color="#D97706" style={{ marginRight: 6 }} />
+                                <Text style={styles.waitTimeTitle}>Expected Wait Time</Text>
+                            </View>
+                            <Text style={styles.waitTimeBody}>
+                                Verification may take <Text style={{ fontWeight: 'bold' }}>24 to 48 hours</Text>
+                            </Text>
+                            <Text style={styles.waitTimeBody}>
+                                We'll send you a notification once your documents are approved.
+                            </Text>
+                            <Text style={[styles.waitTimeBody, { marginTop: 8 }]}>
+                                You can close this app. We'll notify you by SMS when verification is complete.
                             </Text>
                         </View>
 
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={styles.refreshButton}
                             onPress={handleRefreshStatus}
                             disabled={loading}
@@ -500,43 +756,58 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                 {/* SCREEN 4: Approved State */}
                 {currentScreen === 'approved' && (
                     <View style={styles.contentBlock}>
-                        <View style={styles.illustrationWrapper}>
-                            <View style={styles.illustrationBlobGreen} />
-                            <ShieldCheck size={80} color="#10B981" />
+                        {/* Header */}
+                        <View style={styles.figmaHeader}>
+                            <Text style={styles.figmaHeaderSub}>Document Verification</Text>
+                            <Text style={styles.figmaHeaderTitle}>Documents Verified!</Text>
+                            <Text style={styles.figmaHeaderSubtitle}>Your account has been approved</Text>
                         </View>
 
-                        <Text style={styles.centerTitle}>Verification Successful!</Text>
-                        <Text style={styles.centerSubtitle}>
-                            Your documents have been verified. You are ready to start training.
-                        </Text>
+                        {/* Green shield illustration */}
+                        <View style={styles.approvedIllustration}>
+                            <View style={styles.approvedIconCircle}>
+                                <ShieldCheck size={48} color="#10B981" />
+                            </View>
+                            <Text style={styles.approvedTitle}>Verification Successful!</Text>
+                            <Text style={styles.approvedSubtitle}>
+                                All your documents have been verified and approved
+                            </Text>
+                        </View>
 
-                        {/* Verified Checklist box */}
+                        {/* Verified documents list */}
                         <View style={styles.verifiedChecklistContainer}>
                             <Text style={styles.verifiedChecklistHeader}>Verified Documents</Text>
-                            
-                            <View style={styles.verifiedCheckItem}>
-                                <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 10 }} />
-                                <Text style={styles.verifiedCheckText}>Aadhaar Card</Text>
-                            </View>
-                            <View style={styles.verifiedCheckItem}>
-                                <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 10 }} />
-                                <Text style={styles.verifiedCheckText}>PAN Card</Text>
-                            </View>
-                            <View style={styles.verifiedCheckItem}>
-                                <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 10 }} />
-                                <Text style={styles.verifiedCheckText}>Driving Licence</Text>
-                            </View>
-                            <View style={styles.verifiedCheckItem}>
-                                <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 10 }} />
-                                <Text style={styles.verifiedCheckText}>Bank Account</Text>
-                            </View>
+                            {[
+                                'Aadhaar Card Front',
+                                'Aadhaar Card Back',
+                                'Driving Licence',
+                                'Vehicle RC',
+                                'Bank Details',
+                            ].map((doc) => (
+                                <View key={doc} style={styles.verifiedCheckItem}>
+                                    <CheckCircle2 size={16} color="#10B981" style={{ marginRight: 10 }} />
+                                    <Text style={styles.verifiedCheckText}>{doc}</Text>
+                                </View>
+                            ))}
                         </View>
 
-                        <TouchableOpacity 
+
+                        <TouchableOpacity
                             style={styles.primaryButton}
-                            onPress={() => navigation.navigate('Dashboard')}
+                            onPress={async () => {
+                                setLoading(true);
+                                try {
+                                    await refreshProfile();
+                                    // App.tsx will automatically switch the navigator once riderProfile.kycStatus === 'Verified'
+                                } catch (e) {
+                                    showToast('Failed to start. Please try again.', 'error');
+                                } finally {
+                                    setLoading(false);
+                                }
+                            }}
+                            disabled={loading}
                         >
-                            <Text style={styles.primaryButtonText}>Continue to Training</Text>
+                            <Text style={styles.primaryButtonText}>Start Deliveries</Text>
                             <ArrowRight size={18} color="white" style={{ marginLeft: 6 }} />
                         </TouchableOpacity>
                     </View>
@@ -550,6 +821,9 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#F9FAFB',
+    },
+    scrollView: {
+        flex: 1,
     },
     topBar: {
         flexDirection: 'row',
@@ -1009,5 +1283,332 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#374151',
         fontWeight: '600',
+    },
+    stepInfoText: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 4,
+    },
+    documentSubtitle: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginBottom: 20,
+    },
+    uploadSuccessBox: {
+        backgroundColor: '#ECFDF5',
+        borderColor: '#A7F3D0',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 14,
+        marginBottom: 20,
+    },
+    successHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    successTitleText: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#065F46',
+    },
+    successList: {
+        paddingLeft: 6,
+    },
+    successListItemText: {
+        fontSize: 12,
+        color: '#047857',
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+    stepNumberText: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#6B7280',
+    },
+    statusBadge: {
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+    },
+    badgeRequired: {
+        backgroundColor: '#FEE2E2',
+    },
+    badgeRequiredText: {
+        color: '#A30D11',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    badgeOptional: {
+        backgroundColor: '#FEF3C7',
+    },
+    badgeOptionalText: {
+        color: '#B45309',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    outlinePrimaryButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'white',
+        borderWidth: 1.5,
+        borderColor: '#A30D11',
+        height: 52,
+        borderRadius: 12,
+        shadowColor: '#A30D11',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 1,
+        marginTop: 10,
+    },
+    outlinePrimaryButtonText: {
+        color: '#A30D11',
+        fontSize: 15,
+        fontWeight: 'bold',
+    },
+    figmaHeader: {
+        marginBottom: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+        paddingBottom: 16,
+    },
+    backButtonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    backButtonText: {
+        fontSize: 14,
+        color: '#6B7280',
+        fontWeight: '600',
+    },
+    figmaHeaderSub: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 4,
+    },
+    figmaHeaderTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    figmaHeaderTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 2,
+    },
+    figmaHeaderSubtitle: {
+        fontSize: 13,
+        color: '#6B7280',
+    },
+    figmaHeaderIcon: {
+        marginLeft: 10,
+    },
+    bankInfoCard: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        marginBottom: 20,
+    },
+    bankInfoCardHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    bankInfoIconWrapper: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#FEE2E2',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 10,
+    },
+    bankInfoCardTitle: {
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    inputHint: {
+        fontSize: 11,
+        color: '#6B7280',
+        marginTop: 4,
+    },
+    helpCard: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        marginBottom: 20,
+    },
+    helpTitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 10,
+    },
+    helpRow: {
+        flexDirection: 'row',
+        marginBottom: 8,
+    },
+    helpBullet: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginRight: 6,
+    },
+    helpText: {
+        fontSize: 12,
+        color: '#6B7280',
+        flex: 1,
+        lineHeight: 16,
+    },
+    validationErrorBox: {
+        flexDirection: 'row',
+        backgroundColor: '#FEE2E2',
+        borderColor: '#FCA5A5',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 12,
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    validationErrorTitle: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#991B1B',
+        marginBottom: 2,
+    },
+    validationErrorText: {
+        fontSize: 11,
+        color: '#991B1B',
+    },
+    centerClockContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 24,
+    },
+    centerClockWrapper: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#FEF3C7',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    timelineCard: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        marginBottom: 24,
+    },
+    inlineUploadStatusText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#A30D11',
+        textAlign: 'center',
+        marginTop: 10,
+    },
+
+    // Review screen extras
+    timelineInactiveDotContainer: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 14,
+    },
+    waitTimeCard: {
+        backgroundColor: '#FFFBEB',
+        borderColor: '#FCD34D',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 14,
+        marginBottom: 20,
+    },
+    waitTimeHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    waitTimeTitle: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#D97706',
+    },
+    waitTimeBody: {
+        fontSize: 12,
+        color: '#92400E',
+        lineHeight: 17,
+        marginTop: 2,
+    },
+
+    // Approved screen
+    approvedIllustration: {
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    approvedIconCircle: {
+        width: 96,
+        height: 96,
+        borderRadius: 48,
+        backgroundColor: '#D1FAE5',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    approvedTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#111827',
+        textAlign: 'center',
+        marginBottom: 6,
+    },
+    approvedSubtitle: {
+        fontSize: 13,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 18,
+        paddingHorizontal: 20,
+    },
+    nextStepCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFF7ED',
+        borderColor: '#FDBA74',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 14,
+        marginBottom: 20,
+        gap: 12,
+    },
+    nextStepIconWrapper: {
+        width: 36,
+        height: 36,
+        borderRadius: 8,
+        backgroundColor: '#FEE2E2',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    nextStepTitle: {
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 3,
+    },
+    nextStepDesc: {
+        fontSize: 12,
+        color: '#6B7280',
+        lineHeight: 16,
     },
 });

@@ -49,7 +49,7 @@ const AppNavigator = () => {
   }
 
   // Authenticated but registration details or KYC not approved -> KYC screen
-  if (!riderProfile?.name || !riderProfile?.vehicleNumber || riderProfile?.kycStatus !== 'Approved') {
+  if (!riderProfile?.name || !riderProfile?.vehicleNumber || riderProfile?.kycStatus !== 'Verified') {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Kyc" component={KycScreen} />
@@ -66,7 +66,6 @@ const AppNavigator = () => {
         <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} />
         <Stack.Screen name="Earnings" component={EarningsScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="Kyc" component={KycScreen} />
       </Stack.Navigator>
       <PendingOfferModal />
     </>

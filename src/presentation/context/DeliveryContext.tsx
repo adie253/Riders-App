@@ -184,6 +184,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Location Tracking Loop (using Expo Location)
     useEffect(() => {
         let isMounted = true;
+        let subscription: Location.LocationSubscription | null = null;
 
         const startLocationTracking = async () => {
             try {
@@ -191,7 +192,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 if (status !== 'granted') return;
 
                 // Subscribe to fast local location changes
-                locationSubscriptionRef.current = await Location.watchPositionAsync(
+                const sub = await Location.watchPositionAsync(
                     {
                         accuracy: Location.Accuracy.Balanced,
                         timeInterval: 10000,
@@ -206,6 +207,18 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         }
                     }
                 );
+
+                if (isMounted) {
+                    subscription = sub;
+                    locationSubscriptionRef.current = sub;
+                } else {
+                    // If component unmounted or effect cleaned up before watchPositionAsync resolved
+                    try {
+                        sub.remove();
+                    } catch (e) {
+                        console.warn('Failed to remove subscription on late resolve:', e);
+                    }
+                }
             } catch (err) {
                 console.error('Error starting location tracking watch:', err);
             }
@@ -214,17 +227,29 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (isOnline && isAuthenticated) {
             startLocationTracking();
         } else {
-            if (locationSubscriptionRef.current) {
-                locationSubscriptionRef.current.remove();
-                locationSubscriptionRef.current = null;
-            }
             setCurrentCoords(null);
         }
 
         return () => {
             isMounted = false;
+            setCurrentCoords(null);
+            
+            if (subscription) {
+                try {
+                    subscription.remove();
+                } catch (e) {
+                    console.warn('Failed to remove local location subscription:', e);
+                }
+                subscription = null;
+            }
+
             if (locationSubscriptionRef.current) {
-                locationSubscriptionRef.current.remove();
+                try {
+                    locationSubscriptionRef.current.remove();
+                } catch (e) {
+                    console.warn('Failed to remove ref location subscription:', e);
+                }
+                locationSubscriptionRef.current = null;
             }
         };
     }, [isOnline, isAuthenticated]);
