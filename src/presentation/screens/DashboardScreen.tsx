@@ -3,9 +3,10 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useToast } from '../context/ToastContext';
-import { Bell, Menu, Home, TrendingUp, Gift, Clock, User, ShieldCheck, AlertCircle, Lightbulb, Star } from 'lucide-react-native';
+import { Bell, Menu, Gift, ShieldCheck, AlertCircle, Lightbulb, Star } from 'lucide-react-native';
 import { SwipeButton } from '../components/SwipeButton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomTabBar } from '../components/BottomTabBar';
 
 export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile } = useAuth();
@@ -42,31 +43,6 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
         await toggleDutyStatus();
     };
 
-    // Bottom Navigation Component
-    const BottomTabBar = () => (
-        <View style={[styles.bottomTabBar, { paddingBottom: insets.bottom || 16 }]}>
-            <TouchableOpacity style={styles.tabItem} onPress={() => {}}>
-                <Home size={24} color="#B91C1C" />
-                <Text style={[styles.tabText, styles.tabTextActive]}>Home</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('Earnings')}>
-                <TrendingUp size={24} color="#6B7280" />
-                <Text style={styles.tabText}>Earnings</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => {}}>
-                <Gift size={24} color="#6B7280" />
-                <Text style={styles.tabText}>Offers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => {}}>
-                <Clock size={24} color="#6B7280" />
-                <Text style={styles.tabText}>History</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => navigation.navigate('Profile')}>
-                <User size={24} color="#6B7280" />
-                <Text style={styles.tabText}>Profile</Text>
-            </TouchableOpacity>
-        </View>
-    );
 
     return (
         <View style={styles.container}>
@@ -190,7 +166,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                 )}
             </ScrollView>
 
-            <BottomTabBar />
+            <BottomTabBar navigation={navigation} activeTab="home" />
 
             {/* Go Offline Modal */}
             <Modal
@@ -246,7 +222,7 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         paddingHorizontal: 20,
-        paddingBottom: 100, // Space for bottom tab bar
+        paddingBottom: 100, // Space for absolute bottom tab bar
     },
     greetingText: {
         fontSize: 24,
@@ -445,34 +421,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#6B7280',
         lineHeight: 18,
-    },
-    
-    // Bottom Tab Bar Styles
-    bottomTabBar: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#FFFFFF',
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
-    },
-    tabItem: {
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    tabText: {
-        fontSize: 10,
-        color: '#6B7280',
-        marginTop: 4,
-        fontWeight: '500',
-    },
-    tabTextActive: {
-        color: '#B91C1C',
     },
 
     // Modal Styles

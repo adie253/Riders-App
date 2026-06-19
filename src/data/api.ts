@@ -57,12 +57,79 @@ export const isTokenValid = (): boolean => {
     return new Date(expiresAt).getTime() > Date.now();
 };
 
-export const authFetch = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+export const isTokenExpiredOrExpiringSoon = (): boolean => {
     const token = localStorage.getItem('rider_token');
-    const headers = new Headers(options.headers || {});
-    if (token && isTokenValid()) {
-        headers.set('Authorization', `Bearer ${token}`);
+    const expiresAt = localStorage.getItem('rider_token_expires_at');
+    if (!token) return true;
+    if (!expiresAt) return false;
+    const buffer = 5 * 60 * 1000; // 5 minutes buffer
+    const expiryTime = new Date(expiresAt).getTime();
+    return expiryTime - Date.now() < buffer;
+};
+
+let isRefreshingPromise: Promise<string | null> | null = null;
+
+export const refreshRiderToken = async (): Promise<string | null> => {
+    const refreshToken = localStorage.getItem('rider_refresh_token');
+    if (!refreshToken) return null;
+
+    if (isRefreshingPromise) {
+        return isRefreshingPromise;
     }
+
+    isRefreshingPromise = (async () => {
+        try {
+            const rootApiUrl = BASE_URL.replace(/\/v1$/, '');
+            const response = await fetch(`${rootApiUrl}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken })
+            });
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.message || `Failed to refresh token: ${response.statusText}`);
+            }
+            const data = await response.json();
+            if (data && data.accessToken) {
+                localStorage.setItem('rider_token', data.accessToken);
+                if (data.accessTokenExpiresAt) {
+                    localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt);
+                }
+                if (data.refreshToken) {
+                    localStorage.setItem('rider_refresh_token', data.refreshToken);
+                }
+                console.log('[Auth] Token refreshed successfully.');
+                return data.accessToken;
+            }
+            return null;
+        } catch (error) {
+            console.error('[Auth] Token refresh failed:', error);
+            return null;
+        } finally {
+            isRefreshingPromise = null;
+        }
+    })();
+
+    return isRefreshingPromise;
+};
+
+export const authFetch = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+    let token = localStorage.getItem('rider_token');
+    const refreshToken = localStorage.getItem('rider_refresh_token');
+
+    if (token && refreshToken && isTokenExpiredOrExpiringSoon()) {
+        const newToken = await refreshRiderToken();
+        if (newToken) {
+            token = newToken;
+        }
+    }
+
+    const headers = new Headers(options.headers || {});
+    const activeToken = token || localStorage.getItem('rider_token');
+    if (activeToken) {
+        headers.set('Authorization', `Bearer ${activeToken}`);
+    }
+    
     let finalEndpoint = endpoint;
     // Prevent aggressive caching on mobile, especially iOS, by appending a timestamp to GET requests
     if (!options.method || options.method.toUpperCase() === 'GET') {

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getRiderProfile, updateRiderProfile, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus } from '../../data/api';
+import { getRiderProfile, updateRiderProfile, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus, refreshRiderToken, isTokenExpiredOrExpiringSoon } from '../../data/api';
 import { useToast } from './ToastContext';
 
 export interface RiderProfile {
@@ -43,34 +43,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loadStoredAuth = useCallback(async () => {
         setIsLoading(true);
         try {
-            const storedToken = localStorage.getItem('rider_token');
-            if (storedToken && isTokenValid()) {
-                setToken(storedToken);
-                // Fetch profile and real KYC status concurrently
-                const [profile, kycData] = await Promise.all([
-                    getRiderProfile(),
-                    getRiderKycStatus().catch(() => null) // Fallback if it fails
-                ]);
-                
-                // Merge real KYC status into the profile if available
-                if (kycData && kycData.kycStatus) {
-                    profile.kycStatus = kycData.kycStatus;
+            let storedToken = localStorage.getItem('rider_token');
+            const refreshToken = localStorage.getItem('rider_refresh_token');
+
+            if (storedToken) {
+                // Proactively refresh on mount if token is expiring soon
+                if (isTokenExpiredOrExpiringSoon() && refreshToken) {
+                    const newToken = await refreshRiderToken();
+                    if (newToken) {
+                        storedToken = newToken;
+                    }
                 }
-                
-                setRiderProfile(profile);
+
+                if (storedToken && isTokenValid()) {
+                    setToken(storedToken);
+                    // Fetch profile and real KYC status concurrently
+                    const [profile, kycData] = await Promise.all([
+                        getRiderProfile(),
+                        getRiderKycStatus().catch(() => null) // Fallback if it fails
+                    ]);
+                    
+                    // Merge real KYC status into the profile if available
+                    if (kycData && kycData.kycStatus) {
+                        profile.kycStatus = kycData.kycStatus;
+                    }
+                    
+                    setRiderProfile(profile);
+                } else {
+                    // Token invalid/expired and refresh failed
+                    logout();
+                }
             } else {
-                // Token invalid or missing
-                localStorage.removeItem('rider_token');
-                localStorage.removeItem('rider_token_expires_at');
-                localStorage.removeItem('rider_refresh_token');
-                localStorage.removeItem('rider_id');
                 setToken(null);
                 setRiderProfile(null);
             }
         } catch (e) {
             console.error('Failed to load auth credentials:', e);
-            setToken(null);
-            setRiderProfile(null);
+            logout();
         } finally {
             setIsLoading(false);
         }
@@ -211,6 +220,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const isAuthenticated = !!token && isTokenValid();
+
+    // Periodically check and refresh token in the background when authenticated
+    useEffect(() => {
+        if (!isAuthenticated) return;
+
+        const checkAndRefresh = async () => {
+            const refreshToken = localStorage.getItem('rider_refresh_token');
+            if (isAuthenticated && refreshToken && isTokenExpiredOrExpiringSoon()) {
+                console.log('[Auth] Background token refresh triggered...');
+                const newToken = await refreshRiderToken();
+                if (newToken) {
+                    setToken(newToken);
+                } else {
+                    // Refresh failed (e.g. refresh token is revoked/expired), logout the user
+                    logout();
+                    showToast('Session expired. Please sign in again.', 'warning');
+                }
+            }
+        };
+
+        const interval = setInterval(checkAndRefresh, 60000); // Check every minute
+        checkAndRefresh(); // Check immediately on auth state change
+
+        return () => clearInterval(interval);
+    }, [isAuthenticated, logout, showToast]);
 
     return (
         <AuthContext.Provider value={{

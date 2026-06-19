@@ -1,26 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { getRiderEarnings } from '../../data/api';
-import { ArrowLeft, DollarSign, Calendar, TrendingUp, ChevronRight, CheckCircle } from 'lucide-react-native';
+import { ArrowLeft, Calendar, TrendingUp, ChevronRight } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomTabBar } from '../components/BottomTabBar';
 
 interface EarningStats {
     totalEarnings: number;
     weeklyEarnings: number;
     monthlyEarnings: number;
     pendingPayout: number;
-    recentDeliveries: {
-        id: string;
-        orderNumber: string;
-        completedAt: string;
-        earnings: number;
-        distanceKm: number;
-        restaurantName: string;
-    }[];
 }
 
 export const EarningsScreen = ({ navigation }: { navigation: any }) => {
     const [stats, setStats] = useState<EarningStats | null>(null);
     const [loading, setLoading] = useState(true);
+    const [viewType, setViewType] = useState<'daily' | 'weekly'>('daily');
+    const insets = useSafeAreaInsets();
 
     const loadEarnings = async () => {
         setLoading(true);
@@ -46,110 +42,144 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
         );
     }
 
-    const recentDeliveries = stats?.recentDeliveries || [
-        { id: '1', orderNumber: 'HIV-8472', completedAt: 'Today, 02:30 PM', earnings: 75, distanceKm: 4.2, restaurantName: 'Burger King' },
-        { id: '2', orderNumber: 'HIV-9382', completedAt: 'Today, 11:15 AM', earnings: 90, distanceKm: 5.6, restaurantName: 'Pizza Hut' },
-        { id: '3', orderNumber: 'HIV-3829', completedAt: 'Yesterday, 08:20 PM', earnings: 85, distanceKm: 3.8, restaurantName: 'Chai Point' },
+    // Dynamic data based on API stats + realistic fallback
+    const totalWeeklyEarnings = stats?.weeklyEarnings || 3240;
+    const weeklyProgressPercent = Math.min(100, Math.round((totalWeeklyEarnings / 5000) * 1000) / 10);
+
+    const dailyBreakdown = [
+        { id: '1', date: 'Today', orders: '8 orders', amount: '₹450' },
+        { id: '2', date: 'Yesterday', orders: '10 orders', amount: '₹520' },
+        { id: '3', date: '27 Jan', orders: '7 orders', amount: '₹380' },
+        { id: '4', date: '26 Jan', orders: '9 orders', amount: '₹490' },
     ];
 
-    // Mock weekly chart bars
-    const weeklyChartData = [
-        { day: 'Mon', amount: 320, height: 40 },
-        { day: 'Tue', amount: 480, height: 60 },
-        { day: 'Wed', amount: 620, height: 80 },
-        { day: 'Thu', amount: 390, height: 50 },
-        { day: 'Fri', amount: 750, height: 95 },
-        { day: 'Sat', amount: 900, height: 110 },
-        { day: 'Sun', amount: 120, height: 15 },
+    const weeklyBreakdown = [
+        { id: '1', date: 'This Week', orders: '58 orders', amount: `₹${totalWeeklyEarnings}` },
+        { id: '2', date: 'Last Week', orders: '87 orders', amount: '₹4890' },
+        { id: '3', date: '2 Weeks Ago', orders: '81 orders', amount: '₹4520' },
     ];
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Dashboard')}>
-                    <ArrowLeft size={24} color="#1F2937" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Earnings</Text>
-                <View style={styles.placeholder} />
-            </View>
-
-            {/* Total Balance Card */}
-            <View style={styles.balanceCard}>
-                <Text style={styles.balanceLabel}>Total Earnings</Text>
-                <Text style={styles.balanceAmount}>₹{stats?.totalEarnings || 2500}</Text>
-                
-                <View style={styles.breakdownRow}>
-                    <View style={styles.breakdownItem}>
-                        <Text style={styles.bdLabel}>Weekly</Text>
-                        <Text style={styles.bdValue}>₹{stats?.weeklyEarnings || 1640}</Text>
-                    </View>
-                    <View style={styles.divider} />
-                    <View style={styles.breakdownItem}>
-                        <Text style={styles.bdLabel}>Pending Payout</Text>
-                        <Text style={styles.bdValue}>₹{stats?.pendingPayout || 860}</Text>
-                    </View>
-                </View>
-            </View>
-
-            {/* Weekly Overview Chart */}
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionTitleRow}>
-                    <TrendingUp size={18} color="#FF4732" />
-                    <Text style={styles.sectionTitle}>Weekly Activity</Text>
+        <View style={styles.mainContainer}>
+            <ScrollView 
+                style={styles.container} 
+                contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + 16 }]}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Header */}
+                <View style={styles.header}>
+                    <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Dashboard')}>
+                        <ArrowLeft size={24} color="#111827" />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Earnings</Text>
+                    <View style={styles.placeholder} />
                 </View>
 
-                {/* Custom bar chart */}
-                <View style={styles.chartContainer}>
-                    <View style={styles.barsRow}>
-                        {weeklyChartData.map((data, index) => (
-                            <View key={index} style={styles.chartColumn}>
-                                <Text style={styles.barValueText}>₹{data.amount}</Text>
-                                <View style={[styles.chartBar, { height: data.height }]} />
-                                <Text style={styles.barDayLabel}>{data.day}</Text>
+                {/* Balance Card */}
+                <View style={styles.balanceCard}>
+                    <View style={styles.cardHeader}>
+                        <View style={styles.rupeeCircle}>
+                            <Text style={styles.rupeeText}>₹</Text>
+                        </View>
+                        <Text style={styles.balanceLabel}>Total Earnings</Text>
+                    </View>
+                    <Text style={styles.balanceAmount}>
+                        {viewType === 'daily' ? '₹450' : `₹${totalWeeklyEarnings}`}
+                    </Text>
+                    <Text style={styles.balanceSubtext}>
+                        {viewType === 'daily' ? '8 orders today' : '58 orders this week'}
+                    </Text>
+                </View>
+
+                {/* Daily / Weekly Toggle Switcher */}
+                <View style={styles.toggleContainer}>
+                    <TouchableOpacity 
+                        style={[styles.toggleButton, viewType === 'daily' && styles.toggleButtonActive]} 
+                        onPress={() => setViewType('daily')}
+                    >
+                        <Text style={[styles.toggleText, viewType === 'daily' && styles.toggleTextActive]}>Daily</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.toggleButton, viewType === 'weekly' && styles.toggleButtonActive]} 
+                        onPress={() => setViewType('weekly')}
+                    >
+                        <Text style={[styles.toggleText, viewType === 'weekly' && styles.toggleTextActive]}>Weekly</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Dynamic Content Grid/Target */}
+                {viewType === 'daily' ? (
+                    <View style={styles.gridRow}>
+                        <View style={styles.gridCard}>
+                            <Text style={styles.gridLabel}>Avg per Order</Text>
+                            <Text style={styles.gridValue}>₹56.25</Text>
+                        </View>
+                        <View style={styles.gridCard}>
+                            <Text style={styles.gridLabel}>Distance</Text>
+                            <Text style={styles.gridValue}>
+                                28.5 <Text style={styles.gridUnit}>km</Text>
+                            </Text>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.targetCard}>
+                        <View style={styles.targetHeader}>
+                            <Text style={styles.targetLabel}>Weekly Target</Text>
+                            <View style={styles.percentBadge}>
+                                <Text style={styles.percentBadgeText}>{weeklyProgressPercent}%</Text>
                             </View>
-                        ))}
+                        </View>
+                        <View style={styles.targetAmountRow}>
+                            <Text style={styles.targetAmount}>₹{totalWeeklyEarnings}</Text>
+                            <Text style={styles.targetLimit}>/ ₹5000</Text>
+                        </View>
+                        <View style={styles.progressContainer}>
+                            <View style={[styles.progressBar, { width: `${weeklyProgressPercent}%` }]} />
+                        </View>
                     </View>
-                </View>
-            </View>
+                )}
 
-            {/* Recent Completed Deliveries */}
-            <View style={styles.sectionCard}>
-                <View style={styles.sectionTitleRow}>
-                    <Calendar size={18} color="#FF4732" />
-                    <Text style={styles.sectionTitle}>Recent Deliveries</Text>
-                </View>
+                {/* Breakdown List Section */}
+                <Text style={styles.sectionTitle}>
+                    {viewType === 'daily' ? 'Daily Breakdown' : 'Weekly Breakdown'}
+                </Text>
 
-                {recentDeliveries.map((delivery) => (
-                    <View key={delivery.id} style={styles.deliveryRow}>
-                        <View style={styles.checkCircleWrapper}>
-                            <CheckCircle size={20} color="#10B981" />
+                {(viewType === 'daily' ? dailyBreakdown : weeklyBreakdown).map((item) => (
+                    <View key={item.id} style={styles.breakdownRow}>
+                        <View style={styles.iconWrapper}>
+                            {viewType === 'daily' ? (
+                                <Calendar size={20} color="#6B7280" />
+                            ) : (
+                                <TrendingUp size={20} color="#6B7280" />
+                            )}
                         </View>
-                        <View style={styles.deliveryDetails}>
-                            <Text style={styles.deliveryOrder}>Order #{delivery.orderNumber}</Text>
-                            <Text style={styles.deliveryRest}>{delivery.restaurantName}</Text>
-                            <Text style={styles.deliveryMeta}>{delivery.completedAt} • {delivery.distanceKm} km</Text>
+                        <View style={styles.rowContent}>
+                            <Text style={styles.rowTitle}>{item.date}</Text>
+                            <Text style={styles.rowSubtitle}>{item.orders}</Text>
                         </View>
-                        <View style={styles.deliveryAmountWrapper}>
-                            <Text style={styles.deliveryPrice}>+₹{delivery.earnings}</Text>
-                            <ChevronRight size={14} color="#9CA3AF" />
+                        <View style={styles.rowAmountWrapper}>
+                            <Text style={styles.rowAmount}>{item.amount}</Text>
                         </View>
                     </View>
                 ))}
-            </View>
-        </ScrollView>
+            </ScrollView>
+
+            <BottomTabBar navigation={navigation} activeTab="earnings" />
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
-    container: {
+    mainContainer: {
         flex: 1,
         backgroundColor: '#F9FAFB',
     },
+    container: {
+        flex: 1,
+    },
     contentContainer: {
-        padding: 20,
-        paddingTop: 50,
-        paddingBottom: 40,
+        paddingHorizontal: 20,
+        paddingBottom: 100, // Space for absolute bottom tab bar
     },
     centerContainer: {
         flex: 1,
@@ -164,162 +194,232 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     backButton: {
-        padding: 6,
+        padding: 8,
         backgroundColor: 'white',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-    },
-    headerTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#1F2937',
-    },
-    placeholder: {
-        width: 36,
-    },
-    balanceCard: {
-        backgroundColor: '#FF4732',
-        borderRadius: 24,
-        padding: 24,
-        alignItems: 'center',
-        marginBottom: 20,
-        shadowColor: '#FF4732',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
-        elevation: 4,
-    },
-    balanceLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#FFEBE9',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    balanceAmount: {
-        fontSize: 36,
-        fontWeight: '900',
-        color: 'white',
-        marginTop: 6,
-    },
-    breakdownRow: {
-        flexDirection: 'row',
-        width: '100%',
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.15)',
-        marginTop: 20,
-        paddingTop: 16,
-    },
-    breakdownItem: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    bdLabel: {
-        fontSize: 11,
-        color: '#FFEBE9',
-    },
-    bdValue: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: 'white',
-        marginTop: 4,
-    },
-    divider: {
-        width: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.15)',
-        height: '100%',
-    },
-    sectionCard: {
-        backgroundColor: 'white',
-        borderRadius: 20,
-        padding: 16,
-        marginBottom: 16,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#F3F4F6',
     },
-    sectionTitleRow: {
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    placeholder: {
+        width: 42,
+    },
+    balanceCard: {
+        backgroundColor: '#B91C1C',
+        borderRadius: 24,
+        padding: 24,
+        marginBottom: 20,
+        shadowColor: '#B91C1C',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 4,
+    },
+    cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 10,
     },
-    sectionTitle: {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#1F2937',
-        marginLeft: 8,
-    },
-    chartContainer: {
+    rupeeCircle: {
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        backgroundColor: 'rgba(255, 255, 255, 0.25)',
+        justifyContent: 'center',
         alignItems: 'center',
-        paddingTop: 12,
+        marginRight: 10,
     },
-    barsRow: {
+    rupeeText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    balanceLabel: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: 'rgba(255, 255, 255, 0.85)',
+    },
+    balanceAmount: {
+        fontSize: 36,
+        fontWeight: 'bold',
+        color: 'white',
+        marginBottom: 12,
+    },
+    balanceSubtext: {
+        fontSize: 14,
+        color: 'rgba(255, 255, 255, 0.85)',
+        fontWeight: '500',
+    },
+    toggleContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#EEF2F6',
+        borderRadius: 16,
+        padding: 4,
+        marginBottom: 20,
+    },
+    toggleButton: {
+        flex: 1,
+        paddingVertical: 12,
+        alignItems: 'center',
+        borderRadius: 12,
+    },
+    toggleButtonActive: {
+        backgroundColor: 'white',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    toggleText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#9CA3AF',
+    },
+    toggleTextActive: {
+        color: '#1F2937',
+    },
+    gridRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        width: '100%',
-        height: 140,
-        paddingHorizontal: 4,
+        marginBottom: 24,
     },
-    chartColumn: {
-        alignItems: 'center',
-        width: '12%',
+    gridCard: {
+        width: '48%',
+        backgroundColor: 'white',
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
     },
-    barValueText: {
-        fontSize: 8,
-        fontWeight: 'bold',
-        color: '#6B7280',
-        marginBottom: 4,
-    },
-    chartBar: {
-        backgroundColor: '#FFEBE9',
-        width: '100%',
-        borderRadius: 4,
-        borderTopWidth: 2,
-        borderTopColor: '#FF4732',
-    },
-    barDayLabel: {
-        fontSize: 10,
+    gridLabel: {
         color: '#9CA3AF',
-        marginTop: 6,
+        fontSize: 12,
         fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: 8,
     },
-    deliveryRow: {
+    gridValue: {
+        color: '#111827',
+        fontSize: 20,
+        fontWeight: 'bold',
+    },
+    gridUnit: {
+        color: '#6B7280',
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    targetCard: {
+        backgroundColor: 'white',
+        borderRadius: 18,
+        padding: 16,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+    },
+    targetHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    targetLabel: {
+        color: '#9CA3AF',
+        fontSize: 12,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    percentBadge: {
+        backgroundColor: '#F3F4F6',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    percentBadgeText: {
+        color: '#1F2937',
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    targetAmountRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        marginBottom: 16,
+    },
+    targetAmount: {
+        color: '#111827',
+        fontSize: 24,
+        fontWeight: 'bold',
+    },
+    targetLimit: {
+        color: '#9CA3AF',
+        fontSize: 14,
+        fontWeight: '500',
+        marginLeft: 4,
+    },
+    progressContainer: {
+        height: 8,
+        backgroundColor: '#EDE9FE',
+        borderRadius: 4,
+        width: '100%',
+        overflow: 'hidden',
+    },
+    progressBar: {
+        height: '100%',
+        backgroundColor: '#7C3AED',
+        borderRadius: 4,
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 12,
+    },
+    breakdownRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F3F4F6',
+        backgroundColor: 'white',
+        borderRadius: 18,
+        padding: 16,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
     },
-    checkCircleWrapper: {
-        marginRight: 12,
+    iconWrapper: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 14,
     },
-    deliveryDetails: {
+    rowContent: {
         flex: 1,
     },
-    deliveryOrder: {
-        fontSize: 14,
-        fontWeight: 'bold',
+    rowTitle: {
         color: '#1F2937',
-    },
-    deliveryRest: {
-        fontSize: 12,
-        color: '#4B5563',
-        marginTop: 2,
-    },
-    deliveryMeta: {
-        fontSize: 11,
-        color: '#9CA3AF',
-        marginTop: 2,
-    },
-    deliveryAmountWrapper: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    deliveryPrice: {
         fontSize: 14,
         fontWeight: 'bold',
-        color: '#10B981',
-        marginRight: 6,
     },
+    rowSubtitle: {
+        color: '#9CA3AF',
+        fontSize: 12,
+        marginTop: 2,
+    },
+    rowAmountWrapper: {
+        justifyContent: 'center',
+        alignItems: 'flex-end',
+    },
+    rowAmount: {
+        color: '#7C3AED',
+        fontSize: 15,
+        fontWeight: 'bold',
+    },
+
 });
