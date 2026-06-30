@@ -207,7 +207,7 @@ export const updateRiderLocation = async (latitude: number, longitude: number): 
 
 export const getPendingOffer = async (): Promise<any | null> => {
     try {
-        const response = await authFetch('/rider/delivery/pending-offer');
+        const response = await authFetch('/riders/delivery/pending-offer');
         if (response.status === 204) return null;
         if (!response.ok) return null;
         const text = await response.text();
@@ -220,19 +220,23 @@ export const getPendingOffer = async (): Promise<any | null> => {
 
 export const acceptOffer = async (offerId: string): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/offer/${offerId}/accept`, {
+        const response = await authFetch(`/riders/delivery/offer/${offerId}/accept`, {
             method: 'POST'
         });
-        return response.ok;
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || errData.message || `Failed to accept offer: ${response.statusText}`);
+        }
+        return true;
     } catch (error) {
         console.error('Error accepting offer:', error);
-        return false;
+        throw error;
     }
 };
 
 export const rejectOffer = async (offerId: string, reason: string = 'Declined'): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/offer/${offerId}/reject`, {
+        const response = await authFetch(`/riders/delivery/offer/${offerId}/reject`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason })
@@ -246,7 +250,7 @@ export const rejectOffer = async (offerId: string, reason: string = 'Declined'):
 
 export const markArrivedPickup = async (deliveryId: string): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/${deliveryId}/arrived-pickup`, {
+        const response = await authFetch(`/riders/delivery/${deliveryId}/arrived-pickup`, {
             method: 'POST'
         });
         return response.ok;
@@ -258,7 +262,7 @@ export const markArrivedPickup = async (deliveryId: string): Promise<boolean> =>
 
 export const markPickedUp = async (deliveryId: string, pickupCode: string): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/${deliveryId}/pickup`, {
+        const response = await authFetch(`/riders/delivery/${deliveryId}/pickup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pickupCode })
@@ -276,7 +280,7 @@ export const markPickedUp = async (deliveryId: string, pickupCode: string): Prom
 
 export const markArrivedDrop = async (deliveryId: string): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/${deliveryId}/arrived-drop`, {
+        const response = await authFetch(`/riders/delivery/${deliveryId}/arrived-drop`, {
             method: 'POST'
         });
         return response.ok;
@@ -288,7 +292,7 @@ export const markArrivedDrop = async (deliveryId: string): Promise<boolean> => {
 
 export const markDelivered = async (deliveryId: string, dropCode: string): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/${deliveryId}/delivered`, {
+        const response = await authFetch(`/riders/delivery/${deliveryId}/delivered`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dropCode })
@@ -306,7 +310,7 @@ export const markDelivered = async (deliveryId: string, dropCode: string): Promi
 
 export const markFailed = async (deliveryId: string, reason: string, notes: string = '', photoUrl: string = ''): Promise<boolean> => {
     try {
-        const response = await authFetch(`/rider/delivery/${deliveryId}/failed`, {
+        const response = await authFetch(`/riders/delivery/${deliveryId}/failed`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason, notes, photoUrl })
@@ -320,7 +324,7 @@ export const markFailed = async (deliveryId: string, reason: string, notes: stri
 
 export const getActiveDelivery = async (): Promise<any | null> => {
     try {
-        const response = await authFetch('/rider/delivery/current');
+        const response = await authFetch('/riders/delivery/current');
         if (response.status === 204) return null;
         if (!response.ok) return null;
         const text = await response.text();
@@ -398,6 +402,32 @@ export const confirmKyc = async (riderId: string, documentType: string, fileKey:
         return await response.json();
     } catch (error) {
         console.error('Error in confirmKyc:', error);
+        throw error;
+    }
+};
+
+export const getOrderDetails = async (orderId: string): Promise<any> => {
+    try {
+        const response = await authFetch(`/../orders/${orderId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch order details: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error in getOrderDetails:', error);
+        throw error;
+    }
+};
+
+export const getDeliveryHistory = async (page: number = 1, pageSize: number = 20): Promise<any> => {
+    try {
+        const response = await authFetch(`/riders/delivery/history?page=${page}&pageSize=${pageSize}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch delivery history: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error in getDeliveryHistory:', error);
         throw error;
     }
 };

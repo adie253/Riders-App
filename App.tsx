@@ -19,15 +19,36 @@ import { ActiveDeliveryScreen } from './src/presentation/screens/ActiveDeliveryS
 import { EarningsScreen } from './src/presentation/screens/EarningsScreen';
 import { ProfileScreen } from './src/presentation/screens/ProfileScreen';
 import { OffersScreen } from './src/presentation/screens/OffersScreen';
+import { HistoryScreen } from './src/presentation/screens/HistoryScreen';
 
 // Components
 import { PendingOfferModal } from './src/presentation/components/PendingOfferModal';
+import { LocationWarningModal } from './src/presentation/components/LocationWarningModal';
+
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { BottomTabBar } from './src/presentation/components/BottomTabBar';
 
 // Utilities
 import { initStorage } from './src/utils/storage';
 
 const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 const queryClient = new QueryClient();
+
+const TabNavigator = () => {
+  return (
+    <Tab.Navigator
+      tabBar={(props) => <BottomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Earnings" component={EarningsScreen} />
+      <Tab.Screen name="Offers" component={OffersScreen} />
+      <Tab.Screen name="History" component={HistoryScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
+  );
+};
 
 const AppNavigator = () => {
   const { isAuthenticated, riderProfile, isLoading } = useAuth();
@@ -63,13 +84,11 @@ const AppNavigator = () => {
   return (
     <>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Dashboard" component={DashboardScreen} />
+        <Stack.Screen name="MainTabs" component={TabNavigator} />
         <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} />
-        <Stack.Screen name="Earnings" component={EarningsScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="Offers" component={OffersScreen} />
       </Stack.Navigator>
       <PendingOfferModal />
+      <LocationWarningModal />
     </>
   );
 };

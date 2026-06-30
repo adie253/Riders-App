@@ -1,0 +1,24 @@
+{
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyOTJjMWY4OC00ODFlLTQ4YjMtODc1Zi01YWNmYjQzNDNkZDIiLCJqdGkiOiJjZGVmYWFiOC05NWUzLTQ0YzQtODkzNS1iN2I1ZmZmYTI2ZWEiLCJwaG9uZSI6IjgwODAxMjUzMDkiLCJuYW1lIjoiYWRpdHlhIEUiLCJyb2xlIjoiUmlkZXIiLCJ1c2VyX3R5cGUiOiJyaWRlciIsImt5Y19zdGF0dXMiOiJWZXJpZmllZCIsImV4cCI6MTc4MjczNDAxMywiaXNzIjoiUmFsbHlBUEkiLCJhdWQiOiJSYWxseUFwcCJ9.gZ_TwHeonK8bUihswuCjaIytE6iQv4oo7KjbgAY8VbFdj1BcsbKn186x9PA_G_UQt1SbPnIf1Fss2wsQa2Y2XDtnpkLd5yIrWHNJ3njhJwD_5Ny6XgOr6TlWBnIkPP6GW4BWBuf5baxCtpOyrXvbkqRFGw6pH3i5hr0LIlDg7vcg82CHEuBR28iNKF_WVwwOTHIE4IK1iQmpKs6f56DEYRWMyO-hnfRnbBbSVm1psvlVRs5cAM9MjyWCuAjjS28DPDMJ2SNZBorIS20U5hRWVOyXuL8YXayirljXTgAie0ZeUY-p90AIEyqX7-WiYmEBx362zu5tBhRW4LMC-1rKiQ",
+  "active": {
+    "id": "3c6a41c1-c1dc-4a2f-9a5b-264bea0c281e",
+    "orderId": "d4b7d25b-a598-4dbf-bb8c-a8af8849a8bd",
+    "orderNumber": "ORD-20260629-00048",
+    "status": "RiderArrivedPickup",
+    "fleetType": "OwnFleet",
+    "quotedPrice": 0,
+    "rider": {
+      "riderId": "292c1f88-481e-48b3-875f-5acfb4343dd2",
+      "name": "aditya E",
+      "phone": "8080125309",
+      "trackingUrl": null,
+      "isOwnFleet": true
+    },
+    "createdAt": "2026-06-29T04:14:40.761474Z",
+    "assignedAt": "2026-06-29T04:15:08.323782Z",
+    "pickedUpAt": null,
+    "deliveredAt": null,
+    "distanceKm": null,
+    "estimatedMinutes": null
+  }
+}

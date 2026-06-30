@@ -1,12 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { ArrowLeft, User, Phone, Mail, Award, Truck, ShieldCheck, ChevronRight, LogOut, Save } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile, updateProfile, isUpdatingProfile, logout } = useAuth();
     const { showToast } = useToast();
+
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    useFocusEffect(
+        useCallback(() => {
+            scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+        }, [])
+    );
 
     const [name, setName] = useState(riderProfile?.name || '');
     const [email, setEmail] = useState(riderProfile?.email || '');
@@ -43,7 +52,7 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ScrollView ref={scrollViewRef} style={styles.container} contentContainerStyle={styles.contentContainer}>
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Dashboard')}>

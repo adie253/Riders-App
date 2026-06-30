@@ -2,18 +2,37 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Home, TrendingUp, Gift, Clock, User } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
-interface BottomTabBarProps {
-    navigation: any;
-    activeTab: 'home' | 'earnings' | 'offers' | 'history' | 'profile';
-}
-
-export const BottomTabBar: React.FC<BottomTabBarProps> = ({ navigation, activeTab }) => {
+export const BottomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigation }) => {
     const insets = useSafeAreaInsets();
 
-    const handlePress = (tabName: string, screenName?: string) => {
-        if (activeTab === tabName) return;
-        if (screenName) {
+    const activeRouteName = state.routes[state.index].name;
+
+    const getActiveTabKey = (routeName: string) => {
+        switch (routeName) {
+            case 'Dashboard': return 'home';
+            case 'Earnings': return 'earnings';
+            case 'Offers': return 'offers';
+            case 'History': return 'history';
+            case 'Profile': return 'profile';
+            default: return 'home';
+        }
+    };
+
+    const activeTab = getActiveTabKey(activeRouteName);
+
+    const handlePress = (tabName: string, screenName: string) => {
+        const isFocused = activeTab === tabName;
+        const targetRoute = state.routes.find(r => r.name === screenName);
+
+        const event = navigation.emit({
+            type: 'tabPress',
+            target: targetRoute?.key,
+            canPreventDefault: true,
+        });
+
+        if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(screenName);
         }
     };
@@ -36,7 +55,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({ navigation, activeTa
                 <Gift size={24} color={getTabColor('offers')} />
                 <Text style={[styles.tabText, activeTab === 'offers' && styles.tabTextActive]}>Offers</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.tabItem} onPress={() => handlePress('history')}>
+            <TouchableOpacity style={styles.tabItem} onPress={() => handlePress('history', 'History')}>
                 <Clock size={24} color={getTabColor('history')} />
                 <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>History</Text>
             </TouchableOpacity>

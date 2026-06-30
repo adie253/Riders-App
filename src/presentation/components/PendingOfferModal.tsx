@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, ActivityIndicator, Dimensions } from 'react-native';
 import { useDelivery } from '../context/DeliveryContext';
-import { AlertCircle, Clock, MapPin, Navigation, TrendingUp } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
+import { MapPin, X, AlertTriangle } from 'lucide-react-native';
 
 export const PendingOfferModal = () => {
     const { 
@@ -11,103 +12,106 @@ export const PendingOfferModal = () => {
         rejectActiveOffer, 
         isProcessingOffer 
     } = useDelivery();
+    const navigation = useNavigation<any>();
 
-    const pulseAnim = useRef(new Animated.Value(1)).current;
+    const progressAnim = useRef(new Animated.Value(1)).current;
 
-    // Pulse effect animation
+    // Animate progress bar smoothly when countdown updates
     useEffect(() => {
         if (pendingOffer) {
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(pulseAnim, {
-                        toValue: 1.15,
-                        duration: 800,
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(pulseAnim, {
-                        toValue: 1,
-                        duration: 800,
-                        useNativeDriver: true,
-                    })
-                ])
-            ).start();
+            Animated.timing(progressAnim, {
+                toValue: offerCountdown / (pendingOffer.expiresInSeconds || 30),
+                duration: 1000,
+                useNativeDriver: false, // width/flex layout animations don't support native driver
+            }).start();
         } else {
-            pulseAnim.setValue(1);
+            progressAnim.setValue(1);
         }
-    }, [pendingOffer]);
+    }, [offerCountdown, pendingOffer]);
 
     if (!pendingOffer) return null;
+
+    const handleAccept = async () => {
+        const success = await acceptActiveOffer();
+        if (success) {
+            navigation.navigate('ActiveDelivery');
+        }
+    };
+
+    const widthPercent = progressAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0%', '100%']
+    });
 
     return (
         <Modal
             visible={!!pendingOffer}
             transparent={true}
-            animationType="fade"
+            animationType="slide"
         >
             <View style={styles.overlay}>
                 <View style={styles.modalCard}>
-                    {/* Ringing / Pulsing Header */}
-                    <View style={styles.pulseContainer}>
-                        <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulseAnim }] }]}>
-                            <View style={styles.innerCircle}>
-                                <Navigation size={28} color="white" />
-                            </View>
-                        </Animated.View>
-                        <Text style={styles.ringingTitle}>New Delivery Offer!</Text>
-                        <Text style={styles.ringingSub}>Immediate response required</Text>
+                    {/* Header */}
+                    <View style={styles.headerRow}>
+                        <Text style={styles.modalTitle}>New Order Request</Text>
+                        <TouchableOpacity 
+                            style={styles.closeButton} 
+                            onPress={() => rejectActiveOffer()}
+                            disabled={isProcessingOffer}
+                        >
+                            <X size={20} color="#1F2937" />
+                        </TouchableOpacity>
                     </View>
 
-                    {/* Earnings Segment */}
-                    <View style={styles.earningsBlock}>
-                        <Text style={styles.earningsLabel}>Guaranteed Earnings</Text>
-                        <Text style={styles.earningsAmount}>₹{pendingOffer.earnings}</Text>
+                    {/* Respond timer */}
+                    <View style={styles.timerContainer}>
+                        <View style={styles.timerHeader}>
+                            <AlertTriangle size={14} color="#EF4444" style={styles.timerIcon} />
+                            <Text style={styles.timerText}>Respond within {offerCountdown}s</Text>
+                        </View>
+                        <View style={styles.progressBarBg}>
+                            <Animated.View style={[styles.progressBarFill, { width: widthPercent }]} />
+                        </View>
                     </View>
 
-                    {/* Route Details */}
-                    <View style={styles.routeDetails}>
-                        <View style={styles.routeRow}>
-                            <View style={styles.routePinWrapper}>
-                                <MapPin size={18} color="#FF4732" />
-                                <View style={styles.dottedLine} />
+                    {/* Details Card */}
+                    <View style={styles.detailsCard}>
+                        <Text style={styles.restaurantName}>{pendingOffer.restaurantName}</Text>
+                        <Text style={styles.orderNumber}>Order #{pendingOffer.orderNumber}</Text>
+                        
+                        <View style={styles.routeContainer}>
+                            <View style={styles.routeRow}>
+                                <MapPin size={16} color="#FF4732" style={styles.pinIcon} />
+                                <Text style={styles.routeText}>
+                                    Pickup: <Text style={styles.routeTextBold}>{pendingOffer.distanceToPickupKm} km away</Text>
+                                </Text>
                             </View>
-                            <View style={styles.routeTexts}>
-                                <Text style={styles.routeHeader}>Restaurant Pickup</Text>
-                                <Text style={styles.routePlace}>{pendingOffer.restaurantName}</Text>
-                                <Text style={styles.routeAddress} numberOfLines={1}>
-                                    {pendingOffer.pickupAddress}
+                            <View style={styles.routeRow}>
+                                <MapPin size={16} color="#10B981" style={styles.pinIcon} />
+                                <Text style={styles.routeText}>
+                                    Drop: <Text style={styles.routeTextBold}>{pendingOffer.distanceToDropKm} km total</Text>
                                 </Text>
                             </View>
                         </View>
-
-                        <View style={[styles.routeRow, { marginTop: 12 }]}>
-                            <View style={styles.routePinWrapper}>
-                                <MapPin size={18} color="#10B981" />
-                            </View>
-                            <View style={styles.routeTexts}>
-                                <Text style={styles.routeHeader}>Customer Drop</Text>
-                                <Text style={styles.routeAddress} numberOfLines={1}>
-                                    {pendingOffer.dropAddress}
-                                </Text>
-                            </View>
-                        </View>
                     </View>
 
-                    {/* Trip Statistics */}
-                    <View style={styles.statsRow}>
-                        <View style={styles.statBox}>
-                            <TrendingUp size={16} color="#4B5563" />
-                            <Text style={styles.statVal}>{pendingOffer.totalDistanceKm} km</Text>
-                            <Text style={styles.statLabel}>Trip Distance</Text>
+                    {/* Total Distance Box */}
+                    <View style={styles.distanceBlock}>
+                        <Text style={styles.distanceLabel}>Total Distance</Text>
+                        <Text style={styles.distanceValue}>{pendingOffer.totalDistanceKm} km</Text>
+                    </View>
+
+                    {/* Earnings Banner */}
+                    <View style={styles.earningsBanner}>
+                        <View>
+                            <Text style={styles.earningsLabel}>Your Earnings</Text>
+                            <Text style={styles.earningsSub}>for this order</Text>
                         </View>
-                        <View style={styles.statBox}>
-                            <Clock size={16} color="#4B5563" />
-                            <Text style={styles.statVal}>{offerCountdown}s</Text>
-                            <Text style={styles.statLabel}>Time Left</Text>
-                        </View>
+                        <Text style={styles.earningsValue}>₹ {pendingOffer.earnings}</Text>
                     </View>
 
                     {/* Action Buttons */}
-                    <View style={styles.actions}>
+                    <View style={styles.actionsRow}>
                         <TouchableOpacity 
                             style={styles.rejectButton}
                             onPress={() => rejectActiveOffer()}
@@ -118,203 +122,213 @@ export const PendingOfferModal = () => {
 
                         <TouchableOpacity 
                             style={styles.acceptButton}
-                            onPress={acceptActiveOffer}
+                            onPress={handleAccept}
                             disabled={isProcessingOffer}
                         >
                             {isProcessingOffer ? (
                                 <ActivityIndicator color="white" />
                             ) : (
-                                <Text style={styles.acceptButtonText}>Accept Offer</Text>
+                                <Text style={styles.acceptButtonText}>Accept Order</Text>
                             )}
                         </TouchableOpacity>
                     </View>
+
+                    {/* Footer Warning */}
+                    <Text style={styles.warningFooter}>Frequent rejections may reduce order priority</Text>
                 </View>
             </View>
         </Modal>
     );
 };
 
-const { width } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 24,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
     },
     modalCard: {
         backgroundColor: 'white',
-        borderRadius: 28,
-        width: width - 48,
-        maxWidth: 400,
-        padding: 24,
-        alignItems: 'center',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 35,
+        width: '100%',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.15,
-        shadowRadius: 24,
-        elevation: 8,
+        shadowOffset: { width: 0, height: -10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10,
     },
-    pulseContainer: {
+    headerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20,
+        marginBottom: 12,
     },
-    pulseCircle: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(255, 71, 50, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    innerCircle: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: '#FF4732',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    ringingTitle: {
-        fontSize: 22,
-        fontWeight: '900',
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '800',
         color: '#1F2937',
     },
-    ringingSub: {
-        fontSize: 13,
-        color: '#6B7280',
-        marginTop: 4,
-        fontWeight: '500',
+    closeButton: {
+        padding: 4,
     },
-    earningsBlock: {
-        backgroundColor: '#F9FAFB',
-        width: '100%',
-        borderRadius: 20,
-        paddingVertical: 14,
+    timerContainer: {
+        marginBottom: 16,
+    },
+    timerHeader: {
+        flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 20,
+        marginBottom: 6,
+    },
+    timerIcon: {
+        marginRight: 6,
+    },
+    timerText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#EF4444',
+    },
+    progressBarBg: {
+        height: 4,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 2,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: '#EF4444',
+        borderRadius: 2,
+    },
+    detailsCard: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 16,
+        padding: 16,
         borderWidth: 1,
         borderColor: '#F3F4F6',
+        marginBottom: 14,
     },
-    earningsLabel: {
-        fontSize: 11,
+    restaurantName: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: '#1F2937',
+    },
+    orderNumber: {
+        fontSize: 12,
         color: '#9CA3AF',
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
+        fontWeight: '600',
+        marginTop: 2,
     },
-    earningsAmount: {
-        fontSize: 28,
-        fontWeight: '900',
-        color: '#FF4732',
-        marginTop: 4,
-    },
-    routeDetails: {
-        width: '100%',
-        marginBottom: 20,
+    routeContainer: {
+        marginTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+        paddingTop: 12,
     },
     routeRow: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-    },
-    routePinWrapper: {
         alignItems: 'center',
-        marginRight: 12,
-        width: 20,
+        marginBottom: 8,
     },
-    dottedLine: {
-        width: 1.5,
-        height: 28,
-        backgroundColor: '#D1D5DB',
-        borderStyle: 'dashed',
-        marginTop: 4,
+    pinIcon: {
+        marginRight: 8,
     },
-    routeTexts: {
-        flex: 1,
+    routeText: {
+        fontSize: 13,
+        color: '#4B5563',
     },
-    routeHeader: {
-        fontSize: 10,
-        fontWeight: 'bold',
+    routeTextBold: {
+        fontWeight: '700',
+        color: '#1F2937',
+    },
+    distanceBlock: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+        paddingVertical: 12,
+        alignItems: 'center',
+        marginBottom: 14,
+    },
+    distanceLabel: {
+        fontSize: 11,
         color: '#9CA3AF',
+        fontWeight: '700',
         textTransform: 'uppercase',
     },
-    routePlace: {
-        fontSize: 14,
-        fontWeight: 'bold',
+    distanceValue: {
+        fontSize: 16,
+        fontWeight: '800',
         color: '#1F2937',
         marginTop: 2,
     },
-    routeAddress: {
-        fontSize: 12,
-        color: '#6B7280',
-        marginTop: 1,
-    },
-    statsRow: {
+    earningsBanner: {
+        backgroundColor: '#FF4732',
+        borderRadius: 16,
         flexDirection: 'row',
         justifyContent: 'space-between',
-        width: '100%',
-        marginBottom: 24,
-    },
-    statBox: {
-        flex: 1,
-        backgroundColor: '#F9FAFB',
-        borderWidth: 1,
-        borderColor: '#F3F4F6',
-        borderRadius: 14,
-        paddingVertical: 10,
         alignItems: 'center',
-        marginHorizontal: 4,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        marginBottom: 18,
+    },
+    earningsLabel: {
+        color: 'white',
+        fontSize: 15,
+        fontWeight: '800',
+    },
+    earningsSub: {
+        color: 'rgba(255, 255, 255, 0.75)',
+        fontSize: 11,
+        fontWeight: '600',
+        marginTop: 1,
+    },
+    earningsValue: {
+        color: 'white',
+        fontSize: 24,
+        fontWeight: '900',
+    },
+    actionsRow: {
         flexDirection: 'row',
-        justifyContent: 'center',
-    },
-    statVal: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#1F2937',
-        marginLeft: 6,
-    },
-    statLabel: {
-        fontSize: 10,
-        color: '#9CA3AF',
-        marginLeft: 6,
-        fontWeight: '500',
-    },
-    actions: {
-        flexDirection: 'row',
-        width: '100%',
+        alignItems: 'center',
+        marginBottom: 14,
     },
     rejectButton: {
         flex: 1,
-        height: 52,
-        backgroundColor: '#F3F4F6',
-        borderRadius: 14,
+        height: 48,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 8,
+        marginRight: 10,
+        backgroundColor: 'white',
     },
     rejectButtonText: {
         color: '#4B5563',
         fontSize: 15,
-        fontWeight: 'bold',
+        fontWeight: '700',
     },
     acceptButton: {
         flex: 2,
-        height: 52,
+        height: 48,
         backgroundColor: '#10B981',
-        borderRadius: 14,
+        borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#10B981',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 3,
     },
     acceptButtonText: {
         color: 'white',
         fontSize: 15,
-        fontWeight: 'bold',
+        fontWeight: '700',
+    },
+    warningFooter: {
+        textAlign: 'center',
+        fontSize: 11,
+        color: '#9CA3AF',
+        fontWeight: '600',
     },
 });
+

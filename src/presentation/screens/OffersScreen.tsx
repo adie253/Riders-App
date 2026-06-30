@@ -1,14 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Gift, Clock, TrendingUp, ChevronRight, Calendar, Zap, Star } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BottomTabBar } from '../components/BottomTabBar';
+import { useFocusEffect } from '@react-navigation/native';
 
 type Segment = 'active' | 'upcoming' | 'completed';
 
 export const OffersScreen = ({ navigation }: { navigation: any }) => {
     const [activeSegment, setActiveSegment] = useState<Segment>('active');
     const insets = useSafeAreaInsets();
+    
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    useFocusEffect(
+        useCallback(() => {
+            scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+        }, [])
+    );
 
     const renderActiveOffers = () => (
         <View style={styles.tabContentContainer}>
@@ -303,6 +311,7 @@ export const OffersScreen = ({ navigation }: { navigation: any }) => {
 
             {/* Scrollable Contents */}
             <ScrollView
+                ref={scrollViewRef}
                 style={styles.scrollStyle}
                 contentContainerStyle={styles.contentContainer}
                 showsVerticalScrollIndicator={false}
@@ -311,9 +320,6 @@ export const OffersScreen = ({ navigation }: { navigation: any }) => {
                 {activeSegment === 'upcoming' && renderUpcomingOffers()}
                 {activeSegment === 'completed' && renderCompletedOffers()}
             </ScrollView>
-
-            {/* Reusable Bottom Navigation Bar */}
-            <BottomTabBar navigation={navigation} activeTab="offers" />
         </View>
     );
 };

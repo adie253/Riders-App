@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions, Modal, ScrollView, SafeAreaView } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
@@ -6,7 +6,8 @@ import { useToast } from '../context/ToastContext';
 import { Bell, Menu, Gift, ShieldCheck, AlertCircle, Lightbulb, Star } from 'lucide-react-native';
 import { SwipeButton } from '../components/SwipeButton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BottomTabBar } from '../components/BottomTabBar';
+import { useFocusEffect } from '@react-navigation/native';
+import { getDeliveryHistory } from '../../data/api';
 
 export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile } = useAuth();
@@ -20,6 +21,37 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const insets = useSafeAreaInsets();
 
     const [isOfflineModalVisible, setOfflineModalVisible] = useState(false);
+    const [todayEarnings, setTodayEarnings] = useState(0);
+    const [todayOrdersCount, setTodayOrdersCount] = useState(0);
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    const fetchPerformance = async () => {
+        try {
+            const history = await getDeliveryHistory(1, 50);
+            if (history && history.items) {
+                const today = new Date();
+                const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+                
+                const todayDeliveries = history.items.filter((item: any) => {
+                    const completedDate = new Date(item.completedAt).getTime();
+                    return completedDate >= startOfToday;
+                });
+                
+                const earningsSum = todayDeliveries.reduce((sum: number, item: any) => sum + (item.earnings || 0), 0);
+                setTodayEarnings(earningsSum);
+                setTodayOrdersCount(todayDeliveries.length);
+            }
+        } catch (error) {
+            console.error('Error fetching today\'s performance:', error);
+        }
+    };
+
+    useFocusEffect(
+        useCallback(() => {
+            scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+            fetchPerformance();
+        }, [])
+    );
 
     // Check if rider has active delivery and navigate if so
     useEffect(() => {
@@ -56,7 +88,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Greeting */}
                 <Text style={styles.greetingText}>Hello, {riderProfile?.name?.split(' ')[0] || 'Rider'}</Text>
 
@@ -115,11 +147,15 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             <Star size={16} color="#F59E0B" fill="#F59E0B" style={{ marginRight: 6 }} />
                             <Text style={styles.bonusTitle}>Today's Bonus</Text>
                         </View>
-                        <Text style={styles.bonusSubtitle}>2 more orders to earn ₹50</Text>
+                        <Text style={styles.bonusSubtitle}>
+                            {Math.max(0, 10 - todayOrdersCount) > 0 
+                                ? `${Math.max(0, 10 - todayOrdersCount)} more orders to earn ₹50` 
+                                : 'Target achieved! ₹50 bonus earned.'}
+                        </Text>
                         <View style={styles.progressBarBg}>
-                            <View style={[styles.progressBarFill, { width: '80%' }]} />
+                            <View style={[styles.progressBarFill, { width: `${Math.min(100, (todayOrdersCount / 10) * 100)}%` }]} />
                         </View>
-                        <Text style={styles.progressText}>8 of 10 orders completed</Text>
+                        <Text style={styles.progressText}>{todayOrdersCount} of 10 orders completed</Text>
                     </View>
                 ) : (
                     <View style={styles.offlineInfoStrip}>
@@ -138,7 +174,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             </View>
                             <Text style={styles.perfLabel}>Earnings</Text>
                         </View>
-                        <Text style={styles.perfValue}>₹450</Text>
+                        <Text style={styles.perfValue}>₹{todayEarnings}</Text>
                     </View>
 
                     <View style={styles.performanceCard}>
@@ -148,7 +184,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             </View>
                             <Text style={styles.perfLabel}>Orders</Text>
                         </View>
-                        <Text style={styles.perfValue}>8</Text>
+                        <Text style={styles.perfValue}>{todayOrdersCount}</Text>
                     </View>
                 </View>
 
@@ -165,8 +201,6 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                     </View>
                 )}
             </ScrollView>
-
-            <BottomTabBar navigation={navigation} activeTab="home" />
 
             {/* Go Offline Modal */}
             <Modal

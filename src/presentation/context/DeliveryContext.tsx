@@ -12,7 +12,8 @@ import {
     markPickedUp, 
     markArrivedDrop, 
     markDelivered, 
-    markFailed 
+    markFailed,
+    getOrderDetails
 } from '../../data/api';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
@@ -55,6 +56,9 @@ export interface ActiveDelivery {
     distanceKm: number;
     status: 'ASSIGNED' | 'ARRIVED_PICKUP' | 'PICKED_UP' | 'ARRIVED_DROP' | 'DELIVERED' | 'FAILED' | string;
     items?: { name: string; quantity: number }[];
+    specialInstructions?: string;
+    paymentMethod?: string;
+    totalAmount?: number;
 }
 
 interface DeliveryContextType {
@@ -65,6 +69,8 @@ interface DeliveryContextType {
     offerCountdown: number;
     isProcessingOffer: boolean;
     isUpdatingStatus: boolean;
+    isLocationOff: boolean;
+    checkLocationStatus: () => Promise<boolean>;
     toggleDutyStatus: () => Promise<boolean>;
     acceptActiveOffer: () => Promise<boolean>;
     rejectActiveOffer: (reason?: string) => Promise<boolean>;
@@ -74,6 +80,7 @@ interface DeliveryContextType {
     completeDelivery: (dropCode: string) => Promise<boolean>;
     abortDelivery: (reason: string, notes?: string) => Promise<boolean>;
     refreshActiveStatus: () => Promise<void>;
+    clearActiveDelivery: () => void;
 }
 
 const DeliveryContext = createContext<DeliveryContextType | undefined>(undefined);
@@ -89,41 +96,141 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [offerCountdown, setOfferCountdown] = useState(0);
     const [isProcessingOffer, setIsProcessingOffer] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+    const [isLocationOff, setIsLocationOff] = useState(false);
 
     const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
     const pollingTimerRef = useRef<any>(null);
     const locationUploadTimerRef = useRef<any>(null);
     const countdownTimerRef = useRef<any>(null);
+    const currentCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+
 
     // Fetch initial active delivery if authenticated
     const fetchCurrentState = useCallback(async () => {
         if (!isAuthenticated) return;
         try {
             const active = await getActiveDelivery();
+            console.log('ACTIVE DELIVERY RESPONSE:', active);
+            try {
+                fetch('http://192.168.0.108:3005/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: localStorage.getItem('rider_token'),
+                        active: active
+                    })
+                }).catch(() => {});
+            } catch (e) {}
             if (active) {
-                // Map API response keys to ActiveDelivery structure
-                setActiveDelivery({
-                    id: active.id || active.deliveryId,
-                    deliveryRequestId: active.deliveryRequestId,
-                    orderId: active.orderId,
-                    orderNumber: active.orderNumber || active.orderId?.substring(0, 8),
-                    restaurantName: active.restaurantName || 'Restaurant',
-                    restaurantAddress: active.pickupAddress || active.restaurantAddress || 'Pickup address',
-                    restaurantPhone: active.restaurantPhone || '',
-                    restaurantLatitude: active.pickupLatitude || active.restaurantLatitude,
-                    restaurantLongitude: active.pickupLongitude || active.restaurantLongitude,
-                    customerName: active.customerName || 'Customer',
-                    customerAddress: active.dropAddress || active.customerAddress || 'Drop address',
-                    customerPhone: active.customerPhone || '',
-                    customerLatitude: active.dropLatitude || active.customerLatitude,
-                    customerLongitude: active.dropLongitude || active.customerLongitude,
-                    earnings: active.earnings || 0,
-                    distanceKm: active.distanceKm || active.totalDistanceKm || 0,
-                    status: active.status || 'ASSIGNED',
-                    items: active.items || []
+                // Map status robustly (e.g. RiderAssigned -> ASSIGNED)
+                const rawStatus = active.status || 'ASSIGNED';
+                let mappedStatus = 'ASSIGNED';
+                const statusUpper = String(rawStatus).toUpperCase().replace(/_/g, '');
+                if (
+                    statusUpper === 'RIDERASSIGNED' || 
+                    statusUpper === 'ASSIGNED' || 
+                    statusUpper === 'RIDERENROUTEPICKUP' || 
+                    statusUpper === 'ENROUTEPICKUP' ||
+                    statusUpper === 'ENROUTE'
+                ) {
+                    mappedStatus = 'ASSIGNED';
+                } else if (
+                    statusUpper === 'RIDERARRIVEDPICKUP' || 
+                    statusUpper === 'RIDERARRIVEDATPICKUP' || 
+                    statusUpper === 'ARRIVEDATPICKUP' || 
+                    statusUpper === 'ARRIVEDPICKUP'
+                ) {
+                    mappedStatus = 'ARRIVED_PICKUP';
+                } else if (
+                    statusUpper === 'RIDERPICKEDUP' || 
+                    statusUpper === 'PICKEDUP'
+                ) {
+                    mappedStatus = 'PICKED_UP';
+                } else if (
+                    statusUpper === 'RIDERARRIVEDDROP' || 
+                    statusUpper === 'RIDERARRIVEDATDROP' || 
+                    statusUpper === 'ARRIVEDATDROP' || 
+                    statusUpper === 'ARRIVEDDROP'
+                ) {
+                    mappedStatus = 'ARRIVED_DROP';
+                } else if (statusUpper === 'DELIVERED' || statusUpper === 'RIDERDELIVERED') {
+                    mappedStatus = 'DELIVERED';
+                } else if (statusUpper === 'FAILED' || statusUpper === 'RIDERFAILED') {
+                    mappedStatus = 'FAILED';
+                } else {
+                    mappedStatus = rawStatus;
+                }
+
+                // Detect the active delivery's orderId
+                const orderId = active.orderId || active.order?.id || active.deliveryRequest?.orderId;
+                let orderDetails: any = null;
+
+                if (orderId) {
+                    try {
+                        orderDetails = await getOrderDetails(orderId);
+                        console.log('HYDRATED ORDER DETAILS:', orderDetails);
+                    } catch (err) {
+                        console.warn('Failed to fetch detailed order metadata, falling back to basic delivery request:', err);
+                    }
+                }
+
+                // Hydrate items list correctly: from orderDetails.items or active delivery response
+                const itemsList = orderDetails?.items || active.items || active.order?.items || active.deliveryRequest?.items || [];
+                const mappedItems = itemsList.map((item: any) => ({
+                    name: item.itemName || item.name || item.menuItemName || 'Item',
+                    quantity: item.quantity || 1
+                }));
+
+                // Map API response keys to ActiveDelivery structure, checking root, deliveryRequest, or order sub-properties
+                const orderPickupLat = orderDetails?.pickupLatitude || orderDetails?.restaurantLatitude || orderDetails?.deliveryInfo?.pickupLatitude;
+                const orderPickupLng = orderDetails?.pickupLongitude || orderDetails?.restaurantLongitude || orderDetails?.deliveryInfo?.pickupLongitude;
+                const orderDropLat = orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude;
+                const orderDropLng = orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude;
+
+                const activeResLat = active.pickupLatitude || active.restaurantLatitude || active.order?.latitude || active.deliveryRequest?.pickupLatitude || orderPickupLat || Number(localStorage.getItem('active_restaurant_lat') || 0);
+                const activeResLng = active.pickupLongitude || active.restaurantLongitude || active.order?.longitude || active.deliveryRequest?.pickupLongitude || orderPickupLng || Number(localStorage.getItem('active_restaurant_lng') || 0);
+                const activeCustLat = active.dropLatitude || active.customerLatitude || active.order?.latitude || active.deliveryRequest?.dropLatitude || orderDropLat || Number(localStorage.getItem('active_customer_lat') || 0);
+                const activeCustLng = active.dropLongitude || active.customerLongitude || active.order?.longitude || active.deliveryRequest?.dropLongitude || orderDropLng || Number(localStorage.getItem('active_customer_lng') || 0);
+
+                setActiveDelivery(prev => {
+                    if (prev?.status === 'DELIVERED') {
+                        return prev;
+                    }
+                    return {
+                        id: active.id || active.deliveryId,
+                        deliveryRequestId: active.deliveryRequestId || active.deliveryRequest?.id,
+                        orderId: orderId,
+                        orderNumber: orderDetails?.orderNumber || active.orderNumber || active.order?.orderNumber || active.deliveryRequest?.orderNumber || (orderId ? orderId.substring(0, 8) : ''),
+                        restaurantName: orderDetails?.restaurantName || active.restaurantName || active.order?.restaurantName || active.deliveryRequest?.restaurantName || 'Restaurant',
+                        restaurantAddress: orderDetails?.pickupAddress || orderDetails?.deliveryAddress || active.pickupAddress || active.restaurantAddress || active.order?.restaurantAddress || active.deliveryRequest?.pickupAddress || 'Pickup address',
+                        restaurantPhone: orderDetails?.restaurantPhone || active.restaurantPhone || active.order?.restaurantPhone || active.deliveryRequest?.restaurantPhone || '',
+                        restaurantLatitude: orderDetails?.pickupLatitude || orderDetails?.restaurantLatitude || activeResLat,
+                        restaurantLongitude: orderDetails?.pickupLongitude || orderDetails?.restaurantLongitude || activeResLng,
+                        customerName: orderDetails?.customerName || active.customerName || active.order?.customerName || active.deliveryRequest?.customerName || 'Customer',
+                        customerAddress: orderDetails?.deliveryAddress || active.dropAddress || active.customerAddress || active.order?.customerAddress || active.deliveryRequest?.dropAddress || 'Drop address',
+                        customerPhone: orderDetails?.customerPhone || active.customerPhone || active.order?.customerPhone || active.deliveryRequest?.customerPhone || '',
+                        customerLatitude: orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude || activeCustLat,
+                        customerLongitude: orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude || activeCustLng,
+                        earnings: active.earnings || active.deliveryRequest?.earnings || 0,
+                        distanceKm: active.distanceKm || active.totalDistanceKm || active.deliveryRequest?.totalDistanceKm || 0,
+                        status: mappedStatus,
+                        items: mappedItems,
+                        specialInstructions: orderDetails?.specialInstructions || active.specialInstructions || active.order?.specialInstructions || active.deliveryRequest?.specialInstructions || '',
+                        paymentMethod: orderDetails?.paymentMethod || active.paymentMethod || active.deliveryRequest?.paymentMethod || 'COD',
+                        totalAmount: orderDetails?.totalAmount || orderDetails?.totalPrice || active.totalAmount || active.deliveryRequest?.totalAmount || 450,
+                    };
                 });
             } else {
-                setActiveDelivery(null);
+                setActiveDelivery(prev => {
+                    if (prev?.status === 'DELIVERED') {
+                        return prev;
+                    }
+                    localStorage.removeItem('active_restaurant_lat');
+                    localStorage.removeItem('active_restaurant_lng');
+                    localStorage.removeItem('active_customer_lat');
+                    localStorage.removeItem('active_customer_lng');
+                    return null;
+                });
             }
 
             // Restore online status from local storage
@@ -140,6 +247,44 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         fetchCurrentState();
     }, [fetchCurrentState]);
 
+    const checkLocationStatus = useCallback(async (): Promise<boolean> => {
+        try {
+            const servicesEnabled = await Location.hasServicesEnabledAsync();
+            if (!servicesEnabled) {
+                setIsLocationOff(true);
+                return false;
+            }
+
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                const requestRes = await Location.requestForegroundPermissionsAsync();
+                if (requestRes.status !== 'granted') {
+                    setIsLocationOff(true);
+                    return false;
+                }
+            }
+
+            setIsLocationOff(false);
+            
+            const position = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+            
+            const coords = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude
+            };
+            
+            setCurrentCoords(coords);
+            currentCoordsRef.current = coords;
+            return true;
+        } catch (e) {
+            console.warn("Failed checking location status:", e);
+            setIsLocationOff(true);
+            return false;
+        }
+    }, []);
+
     // Handle duty status transition
     const toggleDutyStatus = async (): Promise<boolean> => {
         if (!isAuthenticated) return false;
@@ -151,23 +296,51 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     setIsOnline(false);
                     localStorage.setItem('rider_online', 'false');
                     setPendingOffer(null);
+                    setIsLocationOff(false);
                     showToast('You are now offline', 'info');
                     return true;
                 }
             } else {
+                const servicesEnabled = await Location.hasServicesEnabledAsync();
+                if (!servicesEnabled) {
+                    setIsLocationOff(true);
+                    showToast('Please turn on your location services (GPS).', 'error');
+                    setIsUpdatingStatus(false);
+                    return false;
+                }
+
                 // Request location permissions before going online
                 const { status } = await Location.requestForegroundPermissionsAsync();
                 if (status !== 'granted') {
+                    setIsLocationOff(true);
                     showToast('Location permissions are required to go online.', 'error');
                     setIsUpdatingStatus(false);
                     return false;
                 }
 
+                setIsLocationOff(false);
                 const ok = await setStatusOnline();
                 if (ok) {
                     setIsOnline(true);
                     localStorage.setItem('rider_online', 'true');
                     showToast('You are now online and looking for orders', 'success');
+                    
+                    // Immediately try to get initial location and upload
+                    try {
+                        const position = await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.Balanced,
+                        });
+                        const coords = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        };
+                        setCurrentCoords(coords);
+                        currentCoordsRef.current = coords;
+                        await updateRiderLocation(coords.latitude, coords.longitude);
+                    } catch (err) {
+                        console.warn("Failed to get initial location after going online:", err);
+                    }
+                    
                     return true;
                 }
             }
@@ -188,8 +361,19 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         const startLocationTracking = async () => {
             try {
+                const servicesEnabled = await Location.hasServicesEnabledAsync();
+                if (!servicesEnabled) {
+                    setIsLocationOff(true);
+                    return;
+                }
+
                 const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                if (status !== 'granted') {
+                    setIsLocationOff(true);
+                    return;
+                }
+
+                setIsLocationOff(false);
 
                 // Subscribe to fast local location changes
                 const sub = await Location.watchPositionAsync(
@@ -204,6 +388,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                                 latitude: location.coords.latitude,
                                 longitude: location.coords.longitude
                             });
+                            setIsLocationOff(false);
                         }
                     }
                 );
@@ -221,6 +406,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 }
             } catch (err) {
                 console.error('Error starting location tracking watch:', err);
+                setIsLocationOff(true);
             }
         };
 
@@ -228,6 +414,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             startLocationTracking();
         } else {
             setCurrentCoords(null);
+            setIsLocationOff(false);
         }
 
         return () => {
@@ -254,17 +441,61 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         };
     }, [isOnline, isAuthenticated]);
 
+    // Sync currentCoords with ref to avoid resetting the interval
+    useEffect(() => {
+        currentCoordsRef.current = currentCoords;
+    }, [currentCoords]);
+
     // Periodically post coordinates to backend
     useEffect(() => {
-        if (isOnline && isAuthenticated && currentCoords) {
-            // Upload immediately on coordinates change or every 15 seconds
-            const uploadLocation = async () => {
-                await updateRiderLocation(currentCoords.latitude, currentCoords.longitude);
-            };
+        if (!isOnline || !isAuthenticated) return;
 
-            uploadLocation();
-            locationUploadTimerRef.current = setInterval(uploadLocation, 15000);
-        }
+        const uploadLocation = async () => {
+            try {
+                const servicesEnabled = await Location.hasServicesEnabledAsync();
+                if (!servicesEnabled) {
+                    setIsLocationOff(true);
+                    return;
+                }
+
+                const { status } = await Location.getForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    setIsLocationOff(true);
+                    return;
+                }
+
+                setIsLocationOff(false);
+
+                let coords = currentCoordsRef.current;
+                if (!coords) {
+                    try {
+                        const position = await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.Balanced,
+                        });
+                        coords = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        };
+                        setCurrentCoords(coords);
+                    } catch (err) {
+                        console.warn("getCurrentPositionAsync failed in upload interval:", err);
+                    }
+                }
+
+                if (coords) {
+                    await updateRiderLocation(coords.latitude, coords.longitude);
+                }
+            } catch (e) {
+                console.warn("Error in uploadLocation loop:", e);
+                setIsLocationOff(true);
+            }
+        };
+
+        // Upload immediately on status toggle
+        uploadLocation();
+
+        // Strictly upload on a 15-second interval
+        locationUploadTimerRef.current = setInterval(uploadLocation, 15000);
 
         return () => {
             if (locationUploadTimerRef.current) {
@@ -272,7 +503,33 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 locationUploadTimerRef.current = null;
             }
         };
-    }, [isOnline, isAuthenticated, currentCoords]);
+    }, [isOnline, isAuthenticated]);
+
+    // Periodic Active Delivery State Polling (every 10 seconds)
+    useEffect(() => {
+        let activePollingTimer: any = null;
+        
+        const pollActiveDelivery = async () => {
+            if (!isAuthenticated || !activeDelivery || activeDelivery.status === 'DELIVERED') return;
+            try {
+                await fetchCurrentState();
+            } catch (err) {
+                console.warn('Failed to poll active delivery status:', err);
+            }
+        };
+
+        if (isAuthenticated && activeDelivery && activeDelivery.status !== 'DELIVERED') {
+            // Poll immediately when an active delivery is detected/mounted
+            pollActiveDelivery();
+            activePollingTimer = setInterval(pollActiveDelivery, 10000);
+        }
+
+        return () => {
+            if (activePollingTimer) {
+                clearInterval(activePollingTimer);
+            }
+        };
+    }, [isAuthenticated, activeDelivery?.status, fetchCurrentState]);
 
     // Periodic Pending Offer Polling
     useEffect(() => {
@@ -281,6 +538,30 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             try {
                 const offer = await getPendingOffer();
                 if (offer) {
+                    // Use actual remaining seconds from backend, fallback to 30 if null/undefined
+                    const remainingSeconds = typeof offer.expiresInSeconds === 'number' 
+                        ? Math.max(0, offer.expiresInSeconds) 
+                        : 30;
+
+                    // If the offer is already expired on the backend, do not display it
+                    if (remainingSeconds <= 0) {
+                        return;
+                    }
+
+                    // Save coords to localStorage immediately as fallback for active delivery maps
+                    if (typeof offer.pickupLatitude === 'number') {
+                        localStorage.setItem('active_restaurant_lat', String(offer.pickupLatitude));
+                    }
+                    if (typeof offer.pickupLongitude === 'number') {
+                        localStorage.setItem('active_restaurant_lng', String(offer.pickupLongitude));
+                    }
+                    if (typeof offer.dropLatitude === 'number') {
+                        localStorage.setItem('active_customer_lat', String(offer.dropLatitude));
+                    }
+                    if (typeof offer.dropLongitude === 'number') {
+                        localStorage.setItem('active_customer_lng', String(offer.dropLongitude));
+                    }
+
                     setPendingOffer({
                         offerId: offer.offerId || offer.id,
                         deliveryRequestId: offer.deliveryRequestId,
@@ -292,25 +573,25 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         dropAddress: offer.dropAddress || 'Customer Address',
                         dropLatitude: offer.dropLatitude,
                         dropLongitude: offer.dropLongitude,
-                        distanceToPickupKm: offer.distanceToPickupKm || 1.2,
-                        distanceToDropKm: offer.distanceToDropKm || 3.5,
-                        totalDistanceKm: offer.totalDistanceKm || 4.7,
-                        earnings: offer.earnings || 45,
-                        expiresInSeconds: offer.expiresInSeconds || 45,
-                        expiresAt: offer.expiresAt || new Date(Date.now() + 45000).toISOString()
+                        distanceToPickupKm: typeof offer.distanceToPickupKm === 'number' ? offer.distanceToPickupKm : 1.2,
+                        distanceToDropKm: typeof offer.distanceToDropKm === 'number' ? offer.distanceToDropKm : 3.5,
+                        totalDistanceKm: typeof offer.totalDistanceKm === 'number' ? offer.totalDistanceKm : 3.7,
+                        earnings: typeof offer.earnings === 'number' ? offer.earnings : 85,
+                        expiresInSeconds: remainingSeconds,
+                        expiresAt: offer.expiresAt || new Date(Date.now() + remainingSeconds * 1000).toISOString()
                     });
-                    setOfferCountdown(offer.expiresInSeconds || 45);
+                    setOfferCountdown(remainingSeconds);
                 }
             } catch (err) {
                 console.warn('Failed to poll for offer:', err);
             }
         };
-
+ 
         if (isOnline && !activeDelivery && isAuthenticated) {
             checkOffers();
             pollingTimerRef.current = setInterval(checkOffers, 5000);
         }
-
+ 
         return () => {
             if (pollingTimerRef.current) {
                 clearInterval(pollingTimerRef.current);
@@ -318,22 +599,22 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         };
     }, [isOnline, activeDelivery, pendingOffer, isAuthenticated]);
-
+ 
     // Offer Expiry Countdown Timer
     useEffect(() => {
         if (pendingOffer && offerCountdown > 0) {
             countdownTimerRef.current = setInterval(() => {
                 setOfferCountdown((prev) => {
                     if (prev <= 1) {
-                        setPendingOffer(null);
                         clearInterval(countdownTimerRef.current!);
+                        rejectActiveOffer('Expired');
                         return 0;
                     }
                     return prev - 1;
                 });
             }, 1000);
         }
-
+ 
         return () => {
             if (countdownTimerRef.current) {
                 clearInterval(countdownTimerRef.current);
@@ -349,6 +630,10 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
             const success = await acceptOffer(pendingOffer.offerId);
             if (success) {
+                localStorage.setItem('active_restaurant_lat', String(pendingOffer.pickupLatitude));
+                localStorage.setItem('active_restaurant_lng', String(pendingOffer.pickupLongitude));
+                localStorage.setItem('active_customer_lat', String(pendingOffer.dropLatitude));
+                localStorage.setItem('active_customer_lng', String(pendingOffer.dropLongitude));
                 showToast('Offer accepted! Head to restaurant.', 'success');
                 setPendingOffer(null);
                 await fetchCurrentState();
@@ -444,7 +729,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const success = await markDelivered(activeDelivery.id, dropCode);
             if (success) {
                 showToast('Delivery completed! Earnings added.', 'success');
-                setActiveDelivery(null);
+                setActiveDelivery(prev => prev ? { ...prev, status: 'DELIVERED' } : null);
                 return true;
             }
             showToast('Invalid delivery verification code', 'error');
@@ -476,6 +761,14 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await fetchCurrentState();
     };
 
+    const clearActiveDelivery = () => {
+        setActiveDelivery(null);
+        localStorage.removeItem('active_restaurant_lat');
+        localStorage.removeItem('active_restaurant_lng');
+        localStorage.removeItem('active_customer_lat');
+        localStorage.removeItem('active_customer_lng');
+    };
+
     return (
         <DeliveryContext.Provider value={{
             isOnline,
@@ -485,6 +778,8 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             offerCountdown,
             isProcessingOffer,
             isUpdatingStatus,
+            isLocationOff,
+            checkLocationStatus,
             toggleDutyStatus,
             acceptActiveOffer,
             rejectActiveOffer,
@@ -493,7 +788,8 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             arrivedCustomer,
             completeDelivery,
             abortDelivery,
-            refreshActiveStatus
+            refreshActiveStatus,
+            clearActiveDelivery
         }}>
             {children}
         </DeliveryContext.Provider>
