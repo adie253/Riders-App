@@ -1,12 +1,12 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { ArrowLeft, User, Phone, Mail, Award, Truck, ShieldCheck, ChevronRight, LogOut, Save } from 'lucide-react-native';
+import { ArrowLeft, User, Phone, Mail, Award, Truck, ShieldCheck, ChevronRight, LogOut, Save, CreditCard, Building } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 export const ProfileScreen = ({ navigation }: { navigation: any }) => {
-    const { riderProfile, updateProfile, isUpdatingProfile, logout } = useAuth();
+    const { riderProfile, updateProfile, updateBankDetails, isUpdatingProfile, logout } = useAuth();
     const { showToast } = useToast();
 
     const scrollViewRef = useRef<ScrollView>(null);
@@ -22,14 +22,50 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     const [vehicleNumber, setVehicleNumber] = useState(riderProfile?.vehicleNumber || '');
     const [vehicleType, setVehicleType] = useState(riderProfile?.vehicleType || 'Motorcycle');
 
+    const [bankAccountNumber, setBankAccountNumber] = useState(riderProfile?.bankAccountNumber || '');
+    const [bankIfscCode, setBankIfscCode] = useState(riderProfile?.bankIfscCode || '');
+    const [bankAccountName, setBankAccountName] = useState(riderProfile?.bankAccountName || '');
+
+    useEffect(() => {
+        if (riderProfile) {
+            setName(riderProfile.name || '');
+            setEmail(riderProfile.email || '');
+            setVehicleNumber(riderProfile.vehicleNumber || '');
+            setVehicleType(riderProfile.vehicleType || 'Motorcycle');
+            setBankAccountNumber(riderProfile.bankAccountNumber || '');
+            setBankIfscCode(riderProfile.bankIfscCode || '');
+            setBankAccountName(riderProfile.bankAccountName || '');
+        }
+    }, [riderProfile]);
+
     const handleSave = async () => {
         if (!name.trim() || !email.trim() || !vehicleNumber.trim()) {
             showToast('Please fill all fields', 'warning');
             return;
         }
-        const success = await updateProfile({ name, email, vehicleNumber });
-        if (success) {
-            showToast('Profile updated', 'success');
+
+        let bankSuccess = true;
+        if (bankAccountNumber || bankIfscCode || bankAccountName) {
+            if (!bankAccountName.trim() || !bankAccountNumber.trim() || !bankIfscCode.trim()) {
+                showToast('Please fill all bank details', 'warning');
+                return;
+            }
+            if (bankIfscCode.length !== 11) {
+                showToast('IFSC Code must be 11 characters', 'warning');
+                return;
+            }
+            bankSuccess = await updateBankDetails({
+                bankAccountNumber,
+                bankIfscCode: bankIfscCode.toUpperCase(),
+                bankAccountName
+            });
+        }
+
+        if (bankSuccess) {
+            const success = await updateProfile({ name, email, vehicleNumber });
+            if (success) {
+                showToast('Profile updated', 'success');
+            }
         }
     };
 
@@ -152,6 +188,58 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
                 </View>
             </View>
 
+            {/* Bank Details Form */}
+            <View style={styles.formSection}>
+                <Text style={styles.sectionTitle}>Bank Information</Text>
+
+                <View style={styles.inputBlock}>
+                    <Text style={styles.inputLabel}>Account Holder Name</Text>
+                    <View style={styles.inputWrapper}>
+                        <User size={18} color="#9CA3AF" style={styles.inputIcon} />
+                        <TextInput
+                            style={styles.input}
+                            value={bankAccountName}
+                            onChangeText={setBankAccountName}
+                            placeholder="Account Holder Name"
+                        />
+                    </View>
+                </View>
+
+                <View style={styles.inputBlock}>
+                    <Text style={styles.inputLabel}>IFSC Code</Text>
+                    <View style={styles.inputWrapper}>
+                        <Building size={18} color="#9CA3AF" style={styles.inputIcon} />
+                        <TextInput
+                            style={styles.input}
+                            value={bankIfscCode}
+                            onChangeText={(text) => setBankIfscCode(text.toUpperCase())}
+                            placeholder="e.g. SBIN0001234"
+                            maxLength={11}
+                            autoCapitalize="characters"
+                        />
+                    </View>
+                </View>
+
+                <View style={styles.inputBlock}>
+                    <Text style={styles.inputLabel}>Bank Account Number</Text>
+                    <View style={styles.inputWrapper}>
+                        <CreditCard size={18} color="#9CA3AF" style={styles.inputIcon} />
+                        <TextInput
+                            style={styles.input}
+                            value={bankAccountNumber}
+                            onChangeText={setBankAccountNumber}
+                            placeholder="Bank Account Number"
+                            keyboardType="numeric"
+                        />
+                    </View>
+                    {bankAccountNumber.includes('*') && (
+                        <Text style={{ fontSize: 11, color: '#D97706', marginTop: 4, fontWeight: '500' }}>
+                            Note: Account number is masked. Overwrite to update.
+                        </Text>
+                    )}
+                </View>
+            </View>
+
             {/* Operations Actions List */}
             <View style={styles.actionList}>
                 <TouchableOpacity 
@@ -188,7 +276,7 @@ const styles = StyleSheet.create({
     contentContainer: {
         padding: 20,
         paddingTop: 50,
-        paddingBottom: 40,
+        paddingBottom: 150,
     },
     header: {
         flexDirection: 'row',

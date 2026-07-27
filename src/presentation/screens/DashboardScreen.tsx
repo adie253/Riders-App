@@ -8,6 +8,7 @@ import { SwipeButton } from '../components/SwipeButton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDeliveryHistory } from '../../data/api';
+import { useLanguage } from '../context/LanguageContext';
 
 export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile } = useAuth();
@@ -19,6 +20,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     } = useDelivery();
     const { showToast } = useToast();
     const insets = useSafeAreaInsets();
+    const { t } = useLanguage();
 
     const [isOfflineModalVisible, setOfflineModalVisible] = useState(false);
     const [todayEarnings, setTodayEarnings] = useState(0);
@@ -90,7 +92,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
 
             <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Greeting */}
-                <Text style={styles.greetingText}>Hello, {riderProfile?.name?.split(' ')[0] || 'Rider'}</Text>
+                <Text style={styles.greetingText}>{t('hello')}, {riderProfile?.name?.split(' ')[0] || 'Rider'}</Text>
 
                 {/* Status Card */}
                 <View style={styles.statusCard}>
@@ -107,10 +109,10 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                         </View>
                         <View style={styles.statusTextContainer}>
                             <Text style={styles.statusTitle}>
-                                You're <Text style={{ color: isOnline ? '#65A30D' : '#B91C1C' }}>{isOnline ? 'Online' : 'Offline'}</Text>
+                                You're <Text style={{ color: isOnline ? '#65A30D' : '#B91C1C' }}>{isOnline ? t('online') : t('offline')}</Text>
                             </Text>
                             <Text style={styles.statusSubtitle}>
-                                {isOnline ? 'Ready to receive delivery requests' : 'Slide to start receiving orders & earn money.'}
+                                {isOnline ? t('readyToReceive') : t('slideToStart')}
                             </Text>
                         </View>
                     </View>
@@ -124,14 +126,14 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             {isOnline ? (
                                 <SwipeButton 
                                     key="go-offline"
-                                    title="Slide to Go Offline" 
+                                    title={t('slideToGoOffline')}
                                     actionType="goOffline" 
                                     onSwipeComplete={handleRequestGoOffline} 
                                 />
                             ) : (
                                 <SwipeButton 
                                     key="go-online"
-                                    title="Slide to Go Online" 
+                                    title={t('slideToGoOnline')}
                                     actionType="goOnline" 
                                     onSwipeComplete={handleGoOnline} 
                                 />
@@ -145,34 +147,34 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                     <View style={styles.bonusCard}>
                         <View style={styles.bonusHeader}>
                             <Star size={16} color="#F59E0B" fill="#F59E0B" style={{ marginRight: 6 }} />
-                            <Text style={styles.bonusTitle}>Today's Bonus</Text>
+                            <Text style={styles.bonusTitle}>{t('todayBonus')}</Text>
                         </View>
                         <Text style={styles.bonusSubtitle}>
                             {Math.max(0, 10 - todayOrdersCount) > 0 
-                                ? `${Math.max(0, 10 - todayOrdersCount)} more orders to earn ₹50` 
-                                : 'Target achieved! ₹50 bonus earned.'}
+                                ? t('moreOrdersToEarn', { count: Math.max(0, 10 - todayOrdersCount) }) 
+                                : t('targetAchieved')}
                         </Text>
                         <View style={styles.progressBarBg}>
                             <View style={[styles.progressBarFill, { width: `${Math.min(100, (todayOrdersCount / 10) * 100)}%` }]} />
                         </View>
-                        <Text style={styles.progressText}>{todayOrdersCount} of 10 orders completed</Text>
+                        <Text style={styles.progressText}>{t('ordersCompleted', { count: todayOrdersCount })}</Text>
                     </View>
                 ) : (
                     <View style={styles.offlineInfoStrip}>
                         <Lightbulb size={16} color="#FBBF24" style={{ marginRight: 6 }} />
-                        <Text style={styles.offlineInfoText}>Stay online to receive delivery requests</Text>
+                        <Text style={styles.offlineInfoText}>{t('stayOnlineToReceive')}</Text>
                     </View>
                 )}
 
                 {/* Today's Performance */}
-                <Text style={styles.sectionTitle}>Today's Performance</Text>
+                <Text style={styles.sectionTitle}>{t('todaysPerformance')}</Text>
                 <View style={styles.performanceRow}>
                     <View style={styles.performanceCard}>
                         <View style={styles.perfHeader}>
                             <View style={styles.perfIconWrapperRed}>
                                 <Text style={styles.rupeeIconRed}>₹</Text>
                             </View>
-                            <Text style={styles.perfLabel}>Earnings</Text>
+                            <Text style={styles.perfLabel}>{t('earnings')}</Text>
                         </View>
                         <Text style={styles.perfValue}>₹{todayEarnings}</Text>
                     </View>
@@ -182,7 +184,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             <View style={styles.perfIconWrapperRed}>
                                 <Gift size={12} color="#B91C1C" />
                             </View>
-                            <Text style={styles.perfLabel}>Orders</Text>
+                            <Text style={styles.perfLabel}>{t('orders')}</Text>
                         </View>
                         <Text style={styles.perfValue}>{todayOrdersCount}</Text>
                     </View>
@@ -193,10 +195,10 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                     <View style={styles.safetyCard}>
                         <View style={styles.safetyHeader}>
                             <ShieldCheck size={20} color="#3B82F6" style={{ marginRight: 8 }} />
-                            <Text style={styles.safetyTitle}>Safety First</Text>
+                            <Text style={styles.safetyTitle}>{t('safetyFirst')}</Text>
                         </View>
                         <Text style={styles.safetyText}>
-                            Need help during delivery? Tap the SOS button on the top right corner of the screen.
+                            {t('needHelpSos')}
                         </Text>
                     </View>
                 )}
@@ -214,22 +216,22 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                         <View style={styles.modalIconContainer}>
                             <AlertCircle size={48} color="#F59E0B" />
                         </View>
-                        <Text style={styles.modalTitle}>Go Offline?</Text>
+                        <Text style={styles.modalTitle}>{t('goOfflineQuestion')}</Text>
                         <Text style={styles.modalText}>
-                            You won't receive new orders while offline. Your current earnings will be saved.
+                            {t('goOfflineWarning')}
                         </Text>
                         <View style={styles.modalActions}>
                             <TouchableOpacity 
                                 style={styles.modalBtnCancel} 
                                 onPress={() => setOfflineModalVisible(false)}
                             >
-                                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+                                <Text style={styles.modalBtnCancelText}>{t('cancel')}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
                                 style={styles.modalBtnConfirm} 
                                 onPress={confirmGoOffline}
                             >
-                                <Text style={styles.modalBtnConfirmText}>Go Offline</Text>
+                                <Text style={styles.modalBtnConfirmText}>{t('confirmGoOffline')}</Text>
                             </TouchableOpacity>
                         </View>
                     </View>

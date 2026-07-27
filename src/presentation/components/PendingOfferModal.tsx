@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, ActivityIndi
 import { useDelivery } from '../context/DeliveryContext';
 import { useNavigation } from '@react-navigation/native';
 import { MapPin, X, AlertTriangle } from 'lucide-react-native';
+import { Audio } from 'expo-av';
+import { useLanguage } from '../context/LanguageContext';
 
 export const PendingOfferModal = () => {
     const { 
@@ -13,8 +15,102 @@ export const PendingOfferModal = () => {
         isProcessingOffer 
     } = useDelivery();
     const navigation = useNavigation<any>();
+    const { t } = useLanguage();
 
     const progressAnim = useRef(new Animated.Value(1)).current;
+    const soundRef = useRef<Audio.Sound | null>(null);
+    const audioCtxRef = useRef<any>(null);
+    const intervalIdRef = useRef<any>(null);
+
+    // Continuous Ringtone Playback
+    useEffect(() => {
+        let isMounted = true;
+
+        const startRingtone = async () => {
+            try {
+                // Request/set audio category for Expo AV
+                await Audio.setAudioModeAsync({
+                    playsInSilentModeIOS: true,
+                    staysActiveInBackground: true,
+                    playThroughEarpieceAndroid: false
+                }).catch(() => {});
+
+                const { sound } = await Audio.Sound.createAsync(
+                    { uri: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-84.wav' },
+                    { shouldPlay: true, isLooping: true, volume: 1.0 }
+                );
+
+                if (isMounted) {
+                    soundRef.current = sound;
+                } else {
+                    await sound.unloadAsync().catch(() => {});
+                }
+            } catch (err) {
+                console.warn('Expo Audio playback failed, trying Web Audio fallback:', err);
+                
+                // Web Audio fallback for browser execution
+                if (isMounted && typeof window !== 'undefined') {
+                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                    if (AudioContextClass) {
+                        try {
+                            const ctx = new AudioContextClass();
+                            audioCtxRef.current = ctx;
+
+                            const playChime = () => {
+                                if (!ctx || ctx.state === 'suspended') return;
+                                const now = ctx.currentTime;
+                                const osc = ctx.createOscillator();
+                                const gain = ctx.createGain();
+                                
+                                osc.type = 'sine';
+                                osc.frequency.setValueAtTime(587.33, now); // D5
+                                
+                                gain.gain.setValueAtTime(0, now);
+                                gain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+                                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+                                
+                                osc.connect(gain);
+                                gain.connect(ctx.destination);
+                                
+                                osc.start(now);
+                                osc.stop(now + 0.9);
+                            };
+
+                            playChime();
+                            intervalIdRef.current = setInterval(playChime, 1500);
+                        } catch (webAudioErr) {
+                            console.warn('Web Audio fallback failed:', webAudioErr);
+                        }
+                    }
+                }
+            }
+        };
+
+        if (pendingOffer) {
+            startRingtone();
+        }
+
+        return () => {
+            isMounted = false;
+            // Stop and unload Expo AV sound
+            if (soundRef.current) {
+                const snd = soundRef.current;
+                soundRef.current = null;
+                snd.stopAsync()
+                    .then(() => snd.unloadAsync())
+                    .catch(() => {});
+            }
+            // Stop Web Audio interval and close context
+            if (intervalIdRef.current) {
+                clearInterval(intervalIdRef.current);
+                intervalIdRef.current = null;
+            }
+            if (audioCtxRef.current) {
+                audioCtxRef.current.close().catch(() => {});
+                audioCtxRef.current = null;
+            }
+        };
+    }, [pendingOffer]);
 
     // Animate progress bar smoothly when countdown updates
     useEffect(() => {
@@ -53,7 +149,7 @@ export const PendingOfferModal = () => {
                 <View style={styles.modalCard}>
                     {/* Header */}
                     <View style={styles.headerRow}>
-                        <Text style={styles.modalTitle}>New Order Request</Text>
+                        <Text style={styles.modalTitle}>{t('newOrderRequest')}</Text>
                         <TouchableOpacity 
                             style={styles.closeButton} 
                             onPress={() => rejectActiveOffer()}
@@ -67,7 +163,7 @@ export const PendingOfferModal = () => {
                     <View style={styles.timerContainer}>
                         <View style={styles.timerHeader}>
                             <AlertTriangle size={14} color="#EF4444" style={styles.timerIcon} />
-                            <Text style={styles.timerText}>Respond within {offerCountdown}s</Text>
+                            <Text style={styles.timerText}>{t('respondWithin', { time: offerCountdown })}</Text>
                         </View>
                         <View style={styles.progressBarBg}>
                             <Animated.View style={[styles.progressBarFill, { width: widthPercent }]} />
@@ -83,13 +179,13 @@ export const PendingOfferModal = () => {
                             <View style={styles.routeRow}>
                                 <MapPin size={16} color="#FF4732" style={styles.pinIcon} />
                                 <Text style={styles.routeText}>
-                                    Pickup: <Text style={styles.routeTextBold}>{pendingOffer.distanceToPickupKm} km away</Text>
+                                    {t('pickup')}: <Text style={styles.routeTextBold}>{pendingOffer.distanceToPickupKm} km away</Text>
                                 </Text>
                             </View>
                             <View style={styles.routeRow}>
                                 <MapPin size={16} color="#10B981" style={styles.pinIcon} />
                                 <Text style={styles.routeText}>
-                                    Drop: <Text style={styles.routeTextBold}>{pendingOffer.distanceToDropKm} km total</Text>
+                                    {t('drop')}: <Text style={styles.routeTextBold}>{pendingOffer.distanceToDropKm} km total</Text>
                                 </Text>
                             </View>
                         </View>
@@ -97,15 +193,15 @@ export const PendingOfferModal = () => {
 
                     {/* Total Distance Box */}
                     <View style={styles.distanceBlock}>
-                        <Text style={styles.distanceLabel}>Total Distance</Text>
+                        <Text style={styles.distanceLabel}>{t('totalDistance')}</Text>
                         <Text style={styles.distanceValue}>{pendingOffer.totalDistanceKm} km</Text>
                     </View>
 
                     {/* Earnings Banner */}
                     <View style={styles.earningsBanner}>
                         <View>
-                            <Text style={styles.earningsLabel}>Your Earnings</Text>
-                            <Text style={styles.earningsSub}>for this order</Text>
+                            <Text style={styles.earningsLabel}>{t('yourEarnings')}</Text>
+                            <Text style={styles.earningsSub}>{t('forThisOrder')}</Text>
                         </View>
                         <Text style={styles.earningsValue}>₹ {pendingOffer.earnings}</Text>
                     </View>
@@ -117,7 +213,7 @@ export const PendingOfferModal = () => {
                             onPress={() => rejectActiveOffer()}
                             disabled={isProcessingOffer}
                         >
-                            <Text style={styles.rejectButtonText}>Reject</Text>
+                            <Text style={styles.rejectButtonText}>{t('reject')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity 
@@ -128,13 +224,13 @@ export const PendingOfferModal = () => {
                             {isProcessingOffer ? (
                                 <ActivityIndicator color="white" />
                             ) : (
-                                <Text style={styles.acceptButtonText}>Accept Order</Text>
+                                <Text style={styles.acceptButtonText}>{t('acceptOrder')}</Text>
                             )}
                         </TouchableOpacity>
                     </View>
 
                     {/* Footer Warning */}
-                    <Text style={styles.warningFooter}>Frequent rejections may reduce order priority</Text>
+                    <Text style={styles.warningFooter}>{t('rejectionWarning')}</Text>
                 </View>
             </View>
         </Modal>

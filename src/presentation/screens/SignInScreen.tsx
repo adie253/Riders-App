@@ -212,13 +212,12 @@ export const SignInScreen = ({ navigation }: { navigation: any }) => {
                 <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
                     
                     {/* Back Button */}
-                    {['language', 'phone_signup', 'phone_login', 'otp'].includes(step) && (
+                    {['phone_signup', 'phone_login', 'otp'].includes(step) && (
                         <TouchableOpacity 
                             style={styles.backButton} 
                             onPress={() => {
-                                if (step === 'language') transitionTo('welcome');
-                                else if (step === 'phone_signup') transitionTo('language');
-                                else if (step === 'phone_login') transitionTo('language');
+                                if (step === 'phone_signup') transitionTo('welcome');
+                                else if (step === 'phone_login') transitionTo('welcome');
                                 else if (step === 'otp') transitionTo('phone_login');
                             }}
                         >
@@ -242,7 +241,7 @@ export const SignInScreen = ({ navigation }: { navigation: any }) => {
                             <View style={styles.splashBottomWrapper}>
                                 <TouchableOpacity 
                                     style={styles.splashButton}
-                                    onPress={() => transitionTo('language')}
+                                    onPress={() => transitionTo('phone_login')}
                                 >
                                     <Text style={styles.splashButtonText}>Start Riding</Text>
                                     <ChevronRight size={18} color="#1F2937" />

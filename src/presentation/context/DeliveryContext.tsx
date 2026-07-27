@@ -1,22 +1,56 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import * as Location from 'expo-location';
-import { 
-    setStatusOnline, 
-    setStatusOffline, 
-    updateRiderLocation, 
-    getPendingOffer, 
-    acceptOffer, 
-    rejectOffer, 
-    getActiveDelivery, 
-    markArrivedPickup, 
-    markPickedUp, 
-    markArrivedDrop, 
-    markDelivered, 
+import {
+    setStatusOnline,
+    setStatusOffline,
+    updateRiderLocation,
+    getPendingOffer,
+    acceptOffer,
+    rejectOffer,
+    getActiveDelivery,
+    markArrivedPickup,
+    markPickedUp,
+    markArrivedDrop,
+    markDelivered,
     markFailed,
     getOrderDetails
 } from '../../data/api';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
+import { localStorage } from '../../utils/storage';
+
+const formatAddress = (addr: any): string => {
+    if (!addr) return '';
+    if (typeof addr === 'string') return addr;
+    const parts = [
+        addr.addressLine1 || addr.addressLine,
+        addr.addressLine2,
+        addr.street,
+        addr.landmark,
+        addr.city
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(', ');
+    return addr.formattedAddress || addr.fullAddress || addr.address || '';
+};
+
+const safeNum = (val: any, fallback: number): number => {
+    if (val === undefined || val === null) return fallback;
+    const num = Number(val);
+    return isNaN(num) || num === 0 ? fallback : num;
+};
+
+const getHaversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const dist = R * c;
+    return isNaN(dist) ? 0 : dist;
+};
 
 export interface DeliveryOffer {
     offerId: string;
@@ -57,6 +91,7 @@ export interface ActiveDelivery {
     status: 'ASSIGNED' | 'ARRIVED_PICKUP' | 'PICKED_UP' | 'ARRIVED_DROP' | 'DELIVERED' | 'FAILED' | string;
     items?: { name: string; quantity: number }[];
     specialInstructions?: string;
+    deliveryInstructions?: string;
     paymentMethod?: string;
     totalAmount?: number;
 }
@@ -103,6 +138,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const locationUploadTimerRef = useRef<any>(null);
     const countdownTimerRef = useRef<any>(null);
     const currentCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+    const isCompletingDeliveryRef = useRef(false);
 
 
     // Fetch initial active delivery if authenticated
@@ -119,37 +155,37 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         token: localStorage.getItem('rider_token'),
                         active: active
                     })
-                }).catch(() => {});
-            } catch (e) {}
+                }).catch(() => { });
+            } catch (e) { }
             if (active) {
                 // Map status robustly (e.g. RiderAssigned -> ASSIGNED)
                 const rawStatus = active.status || 'ASSIGNED';
                 let mappedStatus = 'ASSIGNED';
                 const statusUpper = String(rawStatus).toUpperCase().replace(/_/g, '');
                 if (
-                    statusUpper === 'RIDERASSIGNED' || 
-                    statusUpper === 'ASSIGNED' || 
-                    statusUpper === 'RIDERENROUTEPICKUP' || 
+                    statusUpper === 'RIDERASSIGNED' ||
+                    statusUpper === 'ASSIGNED' ||
+                    statusUpper === 'RIDERENROUTEPICKUP' ||
                     statusUpper === 'ENROUTEPICKUP' ||
                     statusUpper === 'ENROUTE'
                 ) {
                     mappedStatus = 'ASSIGNED';
                 } else if (
-                    statusUpper === 'RIDERARRIVEDPICKUP' || 
-                    statusUpper === 'RIDERARRIVEDATPICKUP' || 
-                    statusUpper === 'ARRIVEDATPICKUP' || 
+                    statusUpper === 'RIDERARRIVEDPICKUP' ||
+                    statusUpper === 'RIDERARRIVEDATPICKUP' ||
+                    statusUpper === 'ARRIVEDATPICKUP' ||
                     statusUpper === 'ARRIVEDPICKUP'
                 ) {
                     mappedStatus = 'ARRIVED_PICKUP';
                 } else if (
-                    statusUpper === 'RIDERPICKEDUP' || 
+                    statusUpper === 'RIDERPICKEDUP' ||
                     statusUpper === 'PICKEDUP'
                 ) {
                     mappedStatus = 'PICKED_UP';
                 } else if (
-                    statusUpper === 'RIDERARRIVEDDROP' || 
-                    statusUpper === 'RIDERARRIVEDATDROP' || 
-                    statusUpper === 'ARRIVEDATDROP' || 
+                    statusUpper === 'RIDERARRIVEDDROP' ||
+                    statusUpper === 'RIDERARRIVEDATDROP' ||
+                    statusUpper === 'ARRIVEDATDROP' ||
                     statusUpper === 'ARRIVEDDROP'
                 ) {
                     mappedStatus = 'ARRIVED_DROP';
@@ -187,10 +223,40 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 const orderDropLat = orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude;
                 const orderDropLng = orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude;
 
-                const activeResLat = active.pickupLatitude || active.restaurantLatitude || active.order?.latitude || active.deliveryRequest?.pickupLatitude || orderPickupLat || Number(localStorage.getItem('active_restaurant_lat') || 0);
-                const activeResLng = active.pickupLongitude || active.restaurantLongitude || active.order?.longitude || active.deliveryRequest?.pickupLongitude || orderPickupLng || Number(localStorage.getItem('active_restaurant_lng') || 0);
-                const activeCustLat = active.dropLatitude || active.customerLatitude || active.order?.latitude || active.deliveryRequest?.dropLatitude || orderDropLat || Number(localStorage.getItem('active_customer_lat') || 0);
-                const activeCustLng = active.dropLongitude || active.customerLongitude || active.order?.longitude || active.deliveryRequest?.dropLongitude || orderDropLng || Number(localStorage.getItem('active_customer_lng') || 0);
+                const activeResLat = safeNum(active.pickupLatitude || active.restaurantLatitude || active.order?.latitude || active.deliveryRequest?.pickupLatitude || orderPickupLat || localStorage.getItem('active_restaurant_lat'), 18.5204);
+                const activeResLng = safeNum(active.pickupLongitude || active.restaurantLongitude || active.order?.longitude || active.deliveryRequest?.pickupLongitude || orderPickupLng || localStorage.getItem('active_restaurant_lng'), 73.8567);
+                const activeCustLat = safeNum(active.dropLatitude || active.customerLatitude || active.order?.latitude || active.deliveryRequest?.dropLatitude || orderDropLat || localStorage.getItem('active_customer_lat'), 18.5204);
+                const activeCustLng = safeNum(active.dropLongitude || active.customerLongitude || active.order?.longitude || active.deliveryRequest?.dropLongitude || orderDropLng || localStorage.getItem('active_customer_lng'), 73.8567);
+
+                const rawRestaurantAddress =
+                    orderDetails?.deliveryInfo?.pickupAddress ||
+                    orderDetails?.pickupAddress ||
+                    orderDetails?.restaurant?.addressLine ||
+                    orderDetails?.restaurant?.address ||
+                    orderDetails?.restaurantAddress ||
+                    active.pickupAddress ||
+                    active.restaurantAddress ||
+                    active.restaurant?.addressLine ||
+                    active.restaurant?.address ||
+                    active.order?.restaurantAddress ||
+                    active.deliveryRequest?.pickupAddress;
+
+                const restaurantAddressString = formatAddress(rawRestaurantAddress) || 'Pickup address';
+
+                const rawCustomerAddress =
+                    orderDetails?.deliveryInfo?.deliveryAddress ||
+                    orderDetails?.deliveryAddress ||
+                    orderDetails?.customerAddress ||
+                    active.dropAddress ||
+                    active.customerAddress ||
+                    active.order?.customerAddress ||
+                    active.deliveryRequest?.dropAddress;
+
+                const customerAddressString = formatAddress(rawCustomerAddress) || 'Drop address';
+
+                if (active && !localStorage.getItem('active_delivery_start_time')) {
+                    localStorage.setItem('active_delivery_start_time', String(Date.now() - 5 * 60 * 1000));
+                }
 
                 setActiveDelivery(prev => {
                     if (prev?.status === 'DELIVERED') {
@@ -202,27 +268,33 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         orderId: orderId,
                         orderNumber: orderDetails?.orderNumber || active.orderNumber || active.order?.orderNumber || active.deliveryRequest?.orderNumber || (orderId ? orderId.substring(0, 8) : ''),
                         restaurantName: orderDetails?.restaurantName || active.restaurantName || active.order?.restaurantName || active.deliveryRequest?.restaurantName || 'Restaurant',
-                        restaurantAddress: orderDetails?.pickupAddress || orderDetails?.deliveryAddress || active.pickupAddress || active.restaurantAddress || active.order?.restaurantAddress || active.deliveryRequest?.pickupAddress || 'Pickup address',
+                        restaurantAddress: restaurantAddressString,
                         restaurantPhone: orderDetails?.restaurantPhone || active.restaurantPhone || active.order?.restaurantPhone || active.deliveryRequest?.restaurantPhone || '',
-                        restaurantLatitude: orderDetails?.pickupLatitude || orderDetails?.restaurantLatitude || activeResLat,
-                        restaurantLongitude: orderDetails?.pickupLongitude || orderDetails?.restaurantLongitude || activeResLng,
+                        restaurantLatitude: safeNum(orderDetails?.pickupLatitude || orderDetails?.restaurantLatitude || activeResLat, 18.5204),
+                        restaurantLongitude: safeNum(orderDetails?.pickupLongitude || orderDetails?.restaurantLongitude || activeResLng, 73.8567),
                         customerName: orderDetails?.customerName || active.customerName || active.order?.customerName || active.deliveryRequest?.customerName || 'Customer',
-                        customerAddress: orderDetails?.deliveryAddress || active.dropAddress || active.customerAddress || active.order?.customerAddress || active.deliveryRequest?.dropAddress || 'Drop address',
+                        customerAddress: customerAddressString,
                         customerPhone: orderDetails?.customerPhone || active.customerPhone || active.order?.customerPhone || active.deliveryRequest?.customerPhone || '',
-                        customerLatitude: orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude || activeCustLat,
-                        customerLongitude: orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude || activeCustLng,
+                        customerLatitude: safeNum(orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude || activeCustLat, 18.5204),
+                        customerLongitude: safeNum(orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude || activeCustLng, 73.8567),
                         earnings: active.earnings || active.deliveryRequest?.earnings || 0,
-                        distanceKm: active.distanceKm || active.totalDistanceKm || active.deliveryRequest?.totalDistanceKm || 0,
+                        distanceKm: parseFloat(Number(active.distanceKm || active.totalDistanceKm || active.deliveryRequest?.totalDistanceKm || getHaversineDistance(
+                            safeNum(orderDetails?.pickupLatitude || orderDetails?.restaurantLatitude || activeResLat, 18.5204),
+                            safeNum(orderDetails?.pickupLongitude || orderDetails?.restaurantLongitude || activeResLng, 73.8567),
+                            safeNum(orderDetails?.deliveryAddress?.latitude || orderDetails?.deliveryInfo?.deliveryAddress?.latitude || orderDetails?.customerLatitude || activeCustLat, 18.5204),
+                            safeNum(orderDetails?.deliveryAddress?.longitude || orderDetails?.deliveryInfo?.deliveryAddress?.longitude || orderDetails?.customerLongitude || activeCustLng, 73.8567)
+                        )).toFixed(1)),
                         status: mappedStatus,
                         items: mappedItems,
                         specialInstructions: orderDetails?.specialInstructions || active.specialInstructions || active.order?.specialInstructions || active.deliveryRequest?.specialInstructions || '',
+                        deliveryInstructions: rawCustomerAddress?.instructions || orderDetails?.deliveryAddress?.instructions || orderDetails?.deliveryInfo?.deliveryAddress?.instructions || active.deliveryAddress?.instructions || active.deliveryRequest?.deliveryAddress?.instructions || active.order?.deliveryAddress?.instructions || active.deliveryRequest?.instructions || active.instructions || '',
                         paymentMethod: orderDetails?.paymentMethod || active.paymentMethod || active.deliveryRequest?.paymentMethod || 'COD',
                         totalAmount: orderDetails?.totalAmount || orderDetails?.totalPrice || active.totalAmount || active.deliveryRequest?.totalAmount || 450,
                     };
                 });
             } else {
                 setActiveDelivery(prev => {
-                    if (prev?.status === 'DELIVERED') {
+                    if (isCompletingDeliveryRef.current || prev?.status === 'DELIVERED') {
                         return prev;
                     }
                     localStorage.removeItem('active_restaurant_lat');
@@ -265,16 +337,16 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
 
             setIsLocationOff(false);
-            
+
             const position = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.Balanced,
             });
-            
+
             const coords = {
                 latitude: position.coords.latitude,
                 longitude: position.coords.longitude
             };
-            
+
             setCurrentCoords(coords);
             currentCoordsRef.current = coords;
             return true;
@@ -324,7 +396,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     setIsOnline(true);
                     localStorage.setItem('rider_online', 'true');
                     showToast('You are now online and looking for orders', 'success');
-                    
+
                     // Immediately try to get initial location and upload
                     try {
                         const position = await Location.getCurrentPositionAsync({
@@ -340,7 +412,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     } catch (err) {
                         console.warn("Failed to get initial location after going online:", err);
                     }
-                    
+
                     return true;
                 }
             }
@@ -420,7 +492,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return () => {
             isMounted = false;
             setCurrentCoords(null);
-            
+
             if (subscription) {
                 try {
                     subscription.remove();
@@ -508,9 +580,11 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Periodic Active Delivery State Polling (every 10 seconds)
     useEffect(() => {
         let activePollingTimer: any = null;
-        
+
         const pollActiveDelivery = async () => {
-            if (!isAuthenticated || !activeDelivery || activeDelivery.status === 'DELIVERED') return;
+            if (!isAuthenticated) return;
+            // If offline and no active delivery (or it's already delivered), we don't need to poll
+            if (!isOnline && (!activeDelivery || activeDelivery.status === 'DELIVERED')) return;
             try {
                 await fetchCurrentState();
             } catch (err) {
@@ -518,8 +592,10 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         };
 
-        if (isAuthenticated && activeDelivery && activeDelivery.status !== 'DELIVERED') {
-            // Poll immediately when an active delivery is detected/mounted
+        const shouldPoll = isAuthenticated && (isOnline || (activeDelivery && activeDelivery.status !== 'DELIVERED'));
+
+        if (shouldPoll) {
+            // Poll immediately when active delivery or online status is detected
             pollActiveDelivery();
             activePollingTimer = setInterval(pollActiveDelivery, 10000);
         }
@@ -529,7 +605,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 clearInterval(activePollingTimer);
             }
         };
-    }, [isAuthenticated, activeDelivery?.status, fetchCurrentState]);
+    }, [isAuthenticated, isOnline, activeDelivery?.status, fetchCurrentState]);
 
     // Periodic Pending Offer Polling
     useEffect(() => {
@@ -539,8 +615,8 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 const offer = await getPendingOffer();
                 if (offer) {
                     // Use actual remaining seconds from backend, fallback to 30 if null/undefined
-                    const remainingSeconds = typeof offer.expiresInSeconds === 'number' 
-                        ? Math.max(0, offer.expiresInSeconds) 
+                    const remainingSeconds = typeof offer.expiresInSeconds === 'number'
+                        ? Math.max(0, offer.expiresInSeconds)
                         : 30;
 
                     // If the offer is already expired on the backend, do not display it
@@ -548,19 +624,15 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         return;
                     }
 
-                    // Save coords to localStorage immediately as fallback for active delivery maps
-                    if (typeof offer.pickupLatitude === 'number') {
-                        localStorage.setItem('active_restaurant_lat', String(offer.pickupLatitude));
-                    }
-                    if (typeof offer.pickupLongitude === 'number') {
-                        localStorage.setItem('active_restaurant_lng', String(offer.pickupLongitude));
-                    }
-                    if (typeof offer.dropLatitude === 'number') {
-                        localStorage.setItem('active_customer_lat', String(offer.dropLatitude));
-                    }
-                    if (typeof offer.dropLongitude === 'number') {
-                        localStorage.setItem('active_customer_lng', String(offer.dropLongitude));
-                    }
+                    const parsedPickLat = safeNum(offer.pickupLatitude, 18.5204);
+                    const parsedPickLng = safeNum(offer.pickupLongitude, 73.8567);
+                    const parsedDropLat = safeNum(offer.dropLatitude, 18.5204);
+                    const parsedDropLng = safeNum(offer.dropLongitude, 73.8567);
+
+                    localStorage.setItem('active_restaurant_lat', String(parsedPickLat));
+                    localStorage.setItem('active_restaurant_lng', String(parsedPickLng));
+                    localStorage.setItem('active_customer_lat', String(parsedDropLat));
+                    localStorage.setItem('active_customer_lng', String(parsedDropLng));
 
                     setPendingOffer({
                         offerId: offer.offerId || offer.id,
@@ -568,11 +640,11 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         orderNumber: offer.orderNumber || 'HIVAGO-ORD',
                         restaurantName: offer.restaurantName || 'Restaurant Name',
                         pickupAddress: offer.pickupAddress || 'Restaurant Address',
-                        pickupLatitude: offer.pickupLatitude,
-                        pickupLongitude: offer.pickupLongitude,
+                        pickupLatitude: parsedPickLat,
+                        pickupLongitude: parsedPickLng,
                         dropAddress: offer.dropAddress || 'Customer Address',
-                        dropLatitude: offer.dropLatitude,
-                        dropLongitude: offer.dropLongitude,
+                        dropLatitude: parsedDropLat,
+                        dropLongitude: parsedDropLng,
                         distanceToPickupKm: typeof offer.distanceToPickupKm === 'number' ? offer.distanceToPickupKm : 1.2,
                         distanceToDropKm: typeof offer.distanceToDropKm === 'number' ? offer.distanceToDropKm : 3.5,
                         totalDistanceKm: typeof offer.totalDistanceKm === 'number' ? offer.totalDistanceKm : 3.7,
@@ -586,12 +658,12 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 console.warn('Failed to poll for offer:', err);
             }
         };
- 
+
         if (isOnline && !activeDelivery && isAuthenticated) {
             checkOffers();
             pollingTimerRef.current = setInterval(checkOffers, 5000);
         }
- 
+
         return () => {
             if (pollingTimerRef.current) {
                 clearInterval(pollingTimerRef.current);
@@ -599,7 +671,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         };
     }, [isOnline, activeDelivery, pendingOffer, isAuthenticated]);
- 
+
     // Offer Expiry Countdown Timer
     useEffect(() => {
         if (pendingOffer && offerCountdown > 0) {
@@ -614,7 +686,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 });
             }, 1000);
         }
- 
+
         return () => {
             if (countdownTimerRef.current) {
                 clearInterval(countdownTimerRef.current);
@@ -634,6 +706,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 localStorage.setItem('active_restaurant_lng', String(pendingOffer.pickupLongitude));
                 localStorage.setItem('active_customer_lat', String(pendingOffer.dropLatitude));
                 localStorage.setItem('active_customer_lng', String(pendingOffer.dropLongitude));
+                localStorage.setItem('active_delivery_start_time', String(Date.now()));
                 showToast('Offer accepted! Head to restaurant.', 'success');
                 setPendingOffer(null);
                 await fetchCurrentState();
@@ -725,10 +798,19 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const completeDelivery = async (dropCode: string): Promise<boolean> => {
         if (!activeDelivery) return false;
+        isCompletingDeliveryRef.current = true;
         try {
             const success = await markDelivered(activeDelivery.id, dropCode);
             if (success) {
                 showToast('Delivery completed! Earnings added.', 'success');
+                const startTime = Number(localStorage.getItem('active_delivery_start_time'));
+                if (startTime) {
+                    const diffMs = Date.now() - startTime;
+                    const diffMins = Math.max(1, Math.round(diffMs / 60000));
+                    localStorage.setItem(`delivery_time_${activeDelivery.id}`, `${diffMins} mins`);
+                } else {
+                    localStorage.setItem(`delivery_time_${activeDelivery.id}`, '12 mins');
+                }
                 setActiveDelivery(prev => prev ? { ...prev, status: 'DELIVERED' } : null);
                 return true;
             }
@@ -737,6 +819,8 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } catch (e: any) {
             showToast(e.message || 'Invalid code. Ask customer for the delivery code.', 'error');
             return false;
+        } finally {
+            isCompletingDeliveryRef.current = false;
         }
     };
 

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Linking, Dimensions, Platform, PanResponder, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Linking, Dimensions, Platform, PanResponder, Animated, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useDelivery } from '../context/DeliveryContext';
 import { useToast } from '../context/ToastContext';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { localStorage } from '../../utils/storage';
 import { 
     Phone, MapPin, Check, AlertTriangle, ArrowRight, Clipboard, X, 
-    ChevronDown, ChevronUp, Navigation, Play, Pause, Volume2, ArrowLeft, Shield, Clock, User
+    ChevronDown, ChevronUp, Navigation, Play, Pause, Volume2, ArrowLeft, Shield, Clock, User, Maximize2, Minimize2,
+    CornerUpLeft, CornerUpRight, ArrowUp
 } from 'lucide-react-native';
 
 const SwipeButton = ({ text, onSwipeSuccess, color = '#A31D1D' }: { text: string; onSwipeSuccess: () => void; color?: string }) => {
@@ -143,6 +145,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [cancelReason, setCancelReason] = useState('Customer unavailable');
     const [cancelNotes, setCancelNotes] = useState('');
+    const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+    const [isMapFullscreen, setIsMapFullscreen] = useState(false);
+    const [navSteps, setNavSteps] = useState<{ instruction: string; distance: number; modifier: string }[]>([]);
+    const otpInputRef = useRef<TextInput>(null);
 
     // Handle voice message simulation
     useEffect(() => {
@@ -172,9 +178,100 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     // Handle initial navigation redirect if no active delivery
     useEffect(() => {
         if (!activeDelivery) {
-            navigation.navigate('Dashboard');
+            navigation.navigate('MainTabs', { screen: 'Dashboard' });
         }
     }, [activeDelivery]);
+
+    // Fetch real driving route from OSRM router
+    useEffect(() => {
+        if (!activeDelivery) return;
+
+        const startLat = currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005);
+        const startLng = currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005);
+        
+        const isHeadingToRes = activeDelivery.status === 'ASSIGNED' || activeDelivery.status === 'ARRIVED_PICKUP';
+        const destLat = isHeadingToRes ? activeDelivery.restaurantLatitude : activeDelivery.customerLatitude;
+        const destLng = isHeadingToRes ? activeDelivery.restaurantLongitude : activeDelivery.customerLongitude;
+
+        if (!destLat || !destLng) return;
+
+        let active = true;
+
+        const fetchRoute = async () => {
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${destLng},${destLat}?overview=full&geometries=geojson&steps=true`;
+                const response = await fetch(url);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.code === 'Ok' && data.routes && data.routes[0]) {
+                        const coords = data.routes[0].geometry.coordinates.map((coord: [number, number]) => ({
+                            latitude: coord[1],
+                            longitude: coord[0],
+                        }));
+                        if (active) {
+                            setRouteCoords(coords);
+                            if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
+                                const parsed = data.routes[0].legs[0].steps.map((step: any) => {
+                                    const dist = Math.round(step.distance);
+                                    const street = step.name ? ` onto ${step.name}` : '';
+                                    const type = step.maneuver.type;
+                                    const modifier = step.maneuver.modifier;
+
+                                    let instruction = '';
+                                    if (type === 'depart') {
+                                        instruction = `Head towards destination`;
+                                    } else if (type === 'arrive') {
+                                        instruction = `Arrive at destination`;
+                                    } else if (type === 'turn' || type === 'ramp' || type === 'fork') {
+                                        if (modifier?.includes('left')) {
+                                            instruction = `Turn left${street}`;
+                                        } else if (modifier?.includes('right')) {
+                                            instruction = `Turn right${street}`;
+                                        } else if (modifier === 'straight') {
+                                            instruction = `Continue straight${street}`;
+                                        } else if (modifier === 'uturn') {
+                                            instruction = `Make a U-Turn${street}`;
+                                        } else {
+                                            instruction = `Turn ${modifier || ''}${street}`;
+                                        }
+                                    } else if (type === 'roundabout') {
+                                        instruction = `Take roundabout exit${street}`;
+                                    } else {
+                                        instruction = `Continue${street}`;
+                                    }
+
+                                    return {
+                                        instruction,
+                                        distance: dist,
+                                        modifier: modifier || ''
+                                    };
+                                });
+                                setNavSteps(parsed);
+                            } else {
+                                setNavSteps([]);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to fetch route from OSRM:', error);
+            }
+        };
+
+        fetchRoute();
+
+        return () => {
+            active = false;
+        };
+    }, [
+        currentCoords?.latitude, 
+        currentCoords?.longitude, 
+        activeDelivery?.status,
+        activeDelivery?.restaurantLatitude,
+        activeDelivery?.restaurantLongitude,
+        activeDelivery?.customerLatitude,
+        activeDelivery?.customerLongitude
+    ]);
 
     if (!activeDelivery) {
         return (
@@ -192,7 +289,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
         }
     };
 
-    const handleOpenMaps = () => {
+    const handleOpenMaps = async () => {
         const destLat = activeDelivery.status === 'PICKED_UP' || activeDelivery.status === 'ARRIVED_DROP'
             ? activeDelivery.customerLatitude
             : activeDelivery.restaurantLatitude;
@@ -200,10 +297,26 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             ? activeDelivery.customerLongitude
             : activeDelivery.restaurantLongitude;
 
-        const url = `https://www.google.com/maps/search/?api=1&query=${destLat},${destLng}`;
-        Linking.openURL(url).catch(() => {
-            showToast('Failed to open Google Maps', 'error');
+        const nativeUrl = Platform.select({
+            ios: `googlemaps://?daddr=${destLat},${destLng}&directionsmode=driving`,
+            android: `google.navigation:q=${destLat},${destLng}&mode=d`,
+            default: `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`
         });
+
+        const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`;
+
+        try {
+            const supported = await Linking.canOpenURL(nativeUrl);
+            if (supported) {
+                await Linking.openURL(nativeUrl);
+            } else {
+                await Linking.openURL(fallbackUrl);
+            }
+        } catch (error) {
+            Linking.openURL(fallbackUrl).catch(() => {
+                showToast('Failed to open navigation', 'error');
+            });
+        }
     };
 
     const handleStepAction = async () => {
@@ -265,8 +378,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
     // Calculate map region containing rider and target
     const getMapRegion = () => {
-        const riderLat = currentCoords?.latitude || 12.9716;
-        const riderLng = currentCoords?.longitude || 77.5946;
+        const riderLat = currentCoords?.latitude || (activeDelivery.restaurantLatitude - 0.005);
+        const riderLng = currentCoords?.longitude || (activeDelivery.restaurantLongitude - 0.005);
 
         let destLat = activeDelivery.restaurantLatitude;
         let destLng = activeDelivery.restaurantLongitude;
@@ -297,8 +410,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             const digit = otpCode[i] || '';
             const isFocused = i === otpCode.length;
             boxes.push(
-                <View 
+                <TouchableOpacity 
                     key={i} 
+                    activeOpacity={1}
+                    onPress={() => otpInputRef.current?.focus()}
                     style={[
                         styles.otpBox, 
                         digit !== '' && styles.otpBoxFilled,
@@ -306,19 +421,27 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     ]}
                 >
                     <Text style={styles.otpBoxText}>{digit}</Text>
-                </View>
+                </TouchableOpacity>
             );
         }
         return (
-            <View style={styles.otpBoxesContainer}>
+            <TouchableOpacity 
+                activeOpacity={1}
+                onPress={() => otpInputRef.current?.focus()}
+                style={styles.otpBoxesContainer}
+            >
                 {boxes}
                 <TextInput
+                    ref={otpInputRef}
                     style={styles.hiddenTextInput}
                     value={otpCode}
                     onChangeText={(text) => {
                         const cleanText = text.replace(/[^0-9]/g, '');
                         if (cleanText.length <= 6) {
                             setOtpCode(cleanText);
+                            if (cleanText.length === 6) {
+                                Keyboard.dismiss();
+                            }
                         }
                     }}
                     keyboardType="number-pad"
@@ -326,7 +449,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     autoFocus={true}
                     caretHidden={true}
                 />
-            </View>
+            </TouchableOpacity>
         );
     };
 
@@ -337,8 +460,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             const digit = otpCode[i] || '';
             const isFocused = i === otpCode.length;
             boxes.push(
-                <View 
+                <TouchableOpacity 
                     key={i} 
+                    activeOpacity={1}
+                    onPress={() => otpInputRef.current?.focus()}
                     style={[
                         styles.otpBox, 
                         styles.otpBox4,
@@ -347,19 +472,27 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     ]}
                 >
                     <Text style={styles.otpBoxText}>{digit}</Text>
-                </View>
+                </TouchableOpacity>
             );
         }
         return (
-            <View style={[styles.otpBoxesContainer, { paddingHorizontal: 20 }]}>
+            <TouchableOpacity 
+                activeOpacity={1}
+                onPress={() => otpInputRef.current?.focus()}
+                style={styles.otpBoxesContainer}
+            >
                 {boxes}
                 <TextInput
+                    ref={otpInputRef}
                     style={styles.hiddenTextInput}
                     value={otpCode}
                     onChangeText={(text) => {
                         const cleanText = text.replace(/[^0-9]/g, '');
                         if (cleanText.length <= 4) {
                             setOtpCode(cleanText);
+                            if (cleanText.length === 4) {
+                                Keyboard.dismiss();
+                            }
                         }
                     }}
                     keyboardType="number-pad"
@@ -367,7 +500,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     autoFocus={true}
                     caretHidden={true}
                 />
-            </View>
+            </TouchableOpacity>
         );
     };
 
@@ -396,28 +529,20 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                 {/* Trip Stats */}
                 <View style={styles.successStatsRow}>
                     <View style={styles.successStatBox}>
-                        <Text style={styles.successStatVal}>24 mins</Text>
+                        <Text style={styles.successStatVal}>
+                            {localStorage.getItem(`delivery_time_${activeDelivery.id}`) || '12 mins'}
+                        </Text>
                         <Text style={styles.successStatLabel}>Delivery Time</Text>
                     </View>
                     <View style={styles.successStatBox}>
-                        <Text style={styles.successStatVal}>{activeDelivery.distanceKm} km</Text>
+                        <Text style={styles.successStatVal}>
+                            {activeDelivery.distanceKm && Number(activeDelivery.distanceKm) > 0 
+                                ? activeDelivery.distanceKm 
+                                : '3.5'} km
+                        </Text>
                         <Text style={styles.successStatLabel}>Distance</Text>
                     </View>
                 </View>
-
-                {/* Cash Collected Card */}
-                {activeDelivery.paymentMethod === 'COD' && (
-                    <View style={styles.successCashCard}>
-                        <View style={styles.successCashHeader}>
-                            <Text style={styles.successCashLabel}>Cash Collected</Text>
-                            <Text style={styles.successCashVal}>₹ {activeDelivery.totalAmount || 0}</Text>
-                        </View>
-                        <View style={styles.successCashNotice}>
-                            <AlertTriangle size={14} color="#D97706" style={{ marginRight: 6 }} />
-                            <Text style={styles.successCashNoticeText}>Remember to deposit this amount at the end of your shift</Text>
-                        </View>
-                    </View>
-                )}
 
                 {/* Excellence Text */}
                 <View style={styles.successExcellenceCard}>
@@ -429,7 +554,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                 <View style={styles.successActions}>
                     <TouchableOpacity 
                         style={styles.successHomeButton}
-                        onPress={() => clearActiveDelivery()}
+                        onPress={() => {
+                            clearActiveDelivery();
+                            navigation.navigate('MainTabs', { screen: 'Dashboard' });
+                        }}
                     >
                         <Text style={styles.successHomeButtonText}>Back to Home</Text>
                     </TouchableOpacity>
@@ -438,7 +566,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                         style={styles.successViewEarningsButton}
                         onPress={() => {
                             clearActiveDelivery();
-                            navigation.navigate('Earnings');
+                            navigation.navigate('MainTabs', { screen: 'Earnings' });
                         }}
                     >
                         <Text style={styles.successViewEarningsText}>View Earnings</Text>
@@ -453,132 +581,138 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
         const otpCompleted = otpCode.length === 4;
 
         return (
-            <View style={styles.otpFullScreenContainer}>
-                {/* Success Toast if correct OTP digits are typed */}
-                {otpCompleted && (
-                    <View style={styles.successToast}>
-                        <Check size={18} color="white" style={{ marginRight: 8 }} />
-                        <Text style={styles.successToastText}>Ready for delivery!</Text>
-                    </View>
-                )}
-
-                {/* Header */}
-                <View style={styles.otpHeaderArea}>
-                    <TouchableOpacity 
-                        style={styles.otpBackButton} 
-                        onPress={() => {
-                            setOtpCode('');
-                            showToast('Please enter the customer code to complete delivery.', 'info');
-                        }}
-                    >
-                        <Text style={styles.otpBackButtonText}>← Back</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.otpSubLabel}>VERIFY DELIVERY</Text>
-                    <Text style={styles.otpMainTitle}>Enter Customer OTP</Text>
-                    <Text style={styles.otpBillHint}>Ask customer for the OTP shown in their app</Text>
-                </View>
-
-                <ScrollView 
-                    style={styles.otpFormScroll} 
-                    contentContainerStyle={{ flexGrow: 1, paddingBottom: 150 }}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {/* Big Smartphone illustration */}
-                    <View style={styles.phoneIllustrationCard}>
-                        <View style={styles.phoneIllustrationInner}>
-                            <Volume2 size={40} color="#4F46E5" />
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <View style={styles.otpFullScreenContainer}>
+                    {/* Success Toast if correct OTP digits are typed */}
+                    {otpCompleted && (
+                        <View style={styles.successToast}>
+                            <Check size={18} color="white" style={{ marginRight: 8 }} />
+                            <Text style={styles.successToastText}>Ready for delivery!</Text>
                         </View>
-                    </View>
-
-                    {/* How to get OTP instructions */}
-                    <View style={styles.helpBlock}>
-                        <Text style={styles.helpToggleText}>How to get OTP?</Text>
-                        <View style={styles.helpContent}>
-                            <View style={styles.helpStepRow}>
-                                <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>1</Text></View>
-                                <Text style={styles.helpStepText}>Ring doorbell or knock on the door to meet the customer</Text>
-                            </View>
-                            <View style={styles.helpStepRow}>
-                                <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>2</Text></View>
-                                <Text style={styles.helpStepText}>Politely ask customer to share the 4-digit OTP from their app</Text>
-                            </View>
-                            <View style={styles.helpStepRow}>
-                                <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>3</Text></View>
-                                <Text style={styles.helpStepText}>Enter the OTP below to confirm successful delivery</Text>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* Inputs Block */}
-                    <View style={styles.otpEntryBlock}>
-                        <Text style={styles.enterCodeLabel}>Enter 4-Digit OTP</Text>
-                        {renderOtpBoxes4()}
-                        <Text style={styles.demoOtpLabel}>Demo OTP for testing: 1234</Text>
-                    </View>
-
-                    {/* Notice Banner */}
-                    <View style={styles.noticeImportantBlock}>
-                        <AlertTriangle size={18} color="#D97706" style={{ marginRight: 8, marginTop: 2 }} />
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.noticeImportantTitle}>Important</Text>
-                            <Text style={styles.noticeImportantText}>Only hand over the order after customer provides the OTP. This protects your payout.</Text>
-                        </View>
-                    </View>
-
-                    {/* Unreachable Banner */}
-                    <View style={styles.unreachableBlock}>
-                        <AlertTriangle size={18} color="#EF4444" style={{ marginRight: 8, marginTop: 2 }} />
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.unreachableTitle}>Customer Not Responding?</Text>
-                            <Text style={styles.unreachableText}>If customer is not answering calls or door, click below for help</Text>
-                            <TouchableOpacity 
-                                style={styles.unreachableButton} 
-                                onPress={() => showToast('Help request sent. Support will contact you shortly.', 'info')}
-                            >
-                                <Phone size={12} color="#EF4444" style={{ marginRight: 6 }} />
-                                <Text style={styles.unreachableButtonText}>Customer Unreachable</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    {/* Leave at Door Banner */}
-                    <View style={styles.leaveDoorBlock}>
-                        <MapPin size={18} color="#4B5563" style={{ marginRight: 8, marginTop: 2 }} />
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.leaveDoorTitle}>Leave at Door?</Text>
-                            <Text style={styles.leaveDoorText}>If customer is not answering calls or door, click below to leave at door!</Text>
-                            <TouchableOpacity 
-                                style={styles.leaveDoorButton} 
-                                onPress={() => showToast('Left at door logs saved. Customer notified.', 'info')}
-                            >
-                                <Text style={styles.leaveDoorButtonText}>Leave at Door</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    <View style={{ height: 120 }} />
-                </ScrollView>
-
-                {/* Sticky Action Button */}
-                <View style={styles.otpFooter}>
-                    <TouchableOpacity 
-                        style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
-                        onPress={handleStepAction}
-                        disabled={loading || !otpCompleted}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="white" />
-                        ) : (
-                            <Text style={styles.otpSubmitText}>
-                                {otpCompleted ? 'Proceed' : 'Enter Complete OTP'}
-                            </Text>
-                        )}
-                    </TouchableOpacity>
-                    {!otpCompleted && (
-                        <Text style={styles.otpProgressLabel}>Enter all 4 digits to continue</Text>
                     )}
+
+                    {/* Header */}
+                    <View style={styles.otpHeaderArea}>
+                        <TouchableOpacity 
+                            style={styles.otpBackButtonPill} 
+                            onPress={() => {
+                                setOtpCode('');
+                                showToast('Please enter the customer code to complete delivery.', 'info');
+                            }}
+                        >
+                            <ArrowLeft size={16} color="#374151" style={{ marginRight: 6 }} />
+                            <Text style={styles.otpBackButtonText}>Back to Delivery</Text>
+                        </TouchableOpacity>
+
+                        <Text style={styles.otpSubLabel}>VERIFY DELIVERY</Text>
+                        <Text style={styles.otpMainTitle}>Enter Customer OTP</Text>
+                        <Text style={styles.otpBillHint}>Ask customer for the 4-digit OTP shown in their app</Text>
+                    </View>
+
+                    <ScrollView 
+                        style={styles.otpFormScroll} 
+                        contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {/* Hero OTP Card */}
+                        <View style={styles.otpCardContainer}>
+                            <Text style={styles.otpCardTitle}>Enter 4-Digit OTP</Text>
+                            {renderOtpBoxes4()}
+                            <View style={styles.demoOtpContainer}>
+                                <Text style={styles.demoOtpText}>Demo OTP for testing: 1234</Text>
+                            </View>
+                        </View>
+
+                        {/* Customer Instructions */}
+                        {(activeDelivery.specialInstructions || activeDelivery.deliveryInstructions) ? (
+                            <View style={[styles.customerInstructionsCard, { marginBottom: 16 }]}>
+                                <Text style={styles.instructionsTitle}>DELIVERY INSTRUCTIONS</Text>
+                                {activeDelivery.deliveryInstructions ? (
+                                    <Text style={[styles.instructionsText, { fontWeight: '800', color: '#D97706', marginBottom: activeDelivery.specialInstructions ? 6 : 0 }]}>
+                                        📢 Option Chosen: {activeDelivery.deliveryInstructions}
+                                    </Text>
+                                ) : null}
+                                {activeDelivery.specialInstructions ? (
+                                    <Text style={styles.instructionsText}>{activeDelivery.specialInstructions}</Text>
+                                ) : null}
+                            </View>
+                        ) : null}
+
+                        {/* Collapsible How to get OTP Card */}
+                        <View style={styles.helpCardContainer}>
+                            <TouchableOpacity 
+                                style={styles.helpToggle} 
+                                onPress={() => setShowHelpHolder(!showHelpHolder)}
+                            >
+                                <Text style={styles.helpToggleText}>How to get OTP?</Text>
+                                {showHelpHolder ? <ChevronUp size={16} color="#4B5563" /> : <ChevronDown size={16} color="#4B5563" />}
+                            </TouchableOpacity>
+                            {showHelpHolder && (
+                                <View style={styles.helpContent}>
+                                    <View style={styles.helpStepRow}>
+                                        <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>1</Text></View>
+                                        <Text style={styles.helpStepText}>Ring doorbell or knock on door to meet customer</Text>
+                                    </View>
+                                    <View style={styles.helpStepRow}>
+                                        <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>2</Text></View>
+                                        <Text style={styles.helpStepText}>Politely ask customer for the 4-digit OTP from their app</Text>
+                                    </View>
+                                    <View style={styles.helpStepRow}>
+                                        <View style={styles.helpStepNum}><Text style={styles.helpStepNumText}>3</Text></View>
+                                        <Text style={styles.helpStepText}>Enter the OTP above to confirm successful delivery</Text>
+                                    </View>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Customer Unreachable & Support Block */}
+                        <View style={styles.unreachableBlock}>
+                            <AlertTriangle size={18} color="#EF4444" style={{ marginRight: 8, marginTop: 2 }} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.unreachableTitle}>Customer Not Responding?</Text>
+                                <Text style={styles.unreachableText}>If customer is not answering calls or door, use options below</Text>
+                                <View style={styles.unreachableActionsRow}>
+                                    <TouchableOpacity 
+                                        style={styles.unreachableButtonInline} 
+                                        onPress={() => handleCall(activeDelivery.customerPhone)}
+                                    >
+                                        <Phone size={12} color="#EF4444" style={{ marginRight: 6 }} />
+                                        <Text style={styles.unreachableButtonText}>Call Customer</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity 
+                                        style={styles.leaveDoorButtonInline} 
+                                        onPress={() => showToast('Left at door logs saved. Customer notified.', 'info')}
+                                    >
+                                        <MapPin size={12} color="#4B5563" style={{ marginRight: 6 }} />
+                                        <Text style={styles.leaveDoorButtonText}>Leave at Door</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    </ScrollView>
+
+                    {/* Sticky Action Button */}
+                    <View style={styles.otpFooter}>
+                        <TouchableOpacity 
+                            style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
+                            onPress={handleStepAction}
+                            disabled={loading || !otpCompleted}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color="white" />
+                            ) : (
+                                <Text style={styles.otpSubmitText}>
+                                    {otpCompleted ? 'Complete Delivery' : 'Enter Complete OTP'}
+                                </Text>
+                            )}
+                        </TouchableOpacity>
+                        {!otpCompleted && (
+                            <Text style={styles.otpProgressLabel}>Enter all 4 digits to continue</Text>
+                        )}
+                    </View>
                 </View>
-            </View>
+            </TouchableWithoutFeedback>
         );
     }
 
@@ -587,149 +721,202 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
         const otpCompleted = otpCode.length === 4;
 
         return (
-            <View style={styles.otpFullScreenContainer}>
-                {/* Header */}
-                <View style={styles.otpHeaderArea}>
-                    <TouchableOpacity 
-                        style={styles.otpBackButton} 
-                        onPress={() => {
-                            setIsOtpMode(false);
-                            setOtpCode('');
-                        }}
-                    >
-                        <Text style={styles.otpBackButtonText}>← Back</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.otpSubLabel}>VERIFY PICKUP</Text>
-                    <Text style={styles.otpMainTitle}>Enter Restaurant OTP</Text>
-                    <Text style={styles.otpBillHint}>OTP is printed on the food bill/receipt</Text>
-                </View>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <View style={styles.otpFullScreenContainer}>
+                    {/* Header */}
+                    <View style={styles.otpHeaderArea}>
+                        <TouchableOpacity 
+                            style={styles.otpBackButton} 
+                            onPress={() => {
+                                setIsOtpMode(false);
+                                setOtpCode('');
+                            }}
+                        >
+                            <Text style={styles.otpBackButtonText}>← Back</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.otpSubLabel}>VERIFY PICKUP</Text>
+                        <Text style={styles.otpMainTitle}>Enter Restaurant OTP</Text>
+                        <Text style={styles.otpBillHint}>OTP is printed on the food bill/receipt</Text>
+                    </View>
 
-                {/* Inputs Card (Figma Style) */}
-                <View style={styles.otpCardContainer}>
-                    <Text style={styles.otpCardTitle}>Enter 4-Digit OTP</Text>
-                    {renderOtpBoxes4()}
-                    <View style={styles.demoOtpContainer}>
-                        <Text style={styles.demoOtpText}>Demo OTP for testing: 1234</Text>
+                    {/* Inputs Card (Figma Style) */}
+                    <View style={styles.otpCardContainer}>
+                        <Text style={styles.otpCardTitle}>Enter 4-Digit OTP</Text>
+                        {renderOtpBoxes4()}
+                        <View style={styles.demoOtpContainer}>
+                            <Text style={styles.demoOtpText}>Demo OTP for testing: 1234</Text>
+                        </View>
+                    </View>
+
+                    {/* Collapsible Help Card */}
+                    <View style={styles.helpCardContainer}>
+                        <TouchableOpacity 
+                            style={styles.helpToggle} 
+                            onPress={() => setShowHelpHolder(!showHelpHolder)}
+                        >
+                            <Text style={styles.helpToggleText}>How to find OTP?</Text>
+                            {showHelpHolder ? <ChevronUp size={16} color="#4B5563" /> : <ChevronDown size={16} color="#4B5563" />}
+                        </TouchableOpacity>
+                        {showHelpHolder && (
+                            <View style={styles.helpContent}>
+                                <Text style={styles.helpText}>
+                                    1. Ask restaurant staff for the food bill/receipt.{"\n"}
+                                    2. Check the bottom/top of the printed receipt for the 4-digit OTP code.{"\n"}
+                                    3. Enter the code in the boxes above to confirm pickup.
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Map Link */}
+                    <TouchableOpacity style={styles.mapsLinkButton} onPress={handleOpenMaps}>
+                        <Navigation size={16} color="#1F2937" style={{ marginRight: 6 }} />
+                        <Text style={styles.mapsLinkText}>Open in Google Maps</Text>
+                    </TouchableOpacity>
+
+                    {/* Sticky Action Button */}
+                    <View style={styles.otpFooter}>
+                        <TouchableOpacity 
+                            style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
+                            onPress={handleStepAction}
+                            disabled={loading || !otpCompleted}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color="white" />
+                            ) : (
+                                <Text style={styles.otpSubmitText}>Picked Up Order</Text>
+                            )}
+                        </TouchableOpacity>
+                        {!otpCompleted && (
+                            <Text style={styles.otpProgressLabel}>Enter all 4 digits to continue</Text>
+                        )}
                     </View>
                 </View>
-
-                {/* Collapsible Help Card */}
-                <View style={styles.helpCardContainer}>
-                    <TouchableOpacity 
-                        style={styles.helpToggle} 
-                        onPress={() => setShowHelpHolder(!showHelpHolder)}
-                    >
-                        <Text style={styles.helpToggleText}>How to find OTP?</Text>
-                        {showHelpHolder ? <ChevronUp size={16} color="#4B5563" /> : <ChevronDown size={16} color="#4B5563" />}
-                    </TouchableOpacity>
-                    {showHelpHolder && (
-                        <View style={styles.helpContent}>
-                            <Text style={styles.helpText}>
-                                1. Ask restaurant staff for the food bill/receipt.{"\n"}
-                                2. Check the bottom/top of the printed receipt for the 4-digit OTP code.{"\n"}
-                                3. Enter the code in the boxes above to confirm pickup.
-                            </Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* Map Link */}
-                <TouchableOpacity style={styles.mapsLinkButton} onPress={handleOpenMaps}>
-                    <Navigation size={16} color="#1F2937" style={{ marginRight: 6 }} />
-                    <Text style={styles.mapsLinkText}>Open in Google Maps</Text>
-                </TouchableOpacity>
-
-                {/* Sticky Action Button */}
-                <View style={styles.otpFooter}>
-                    <TouchableOpacity 
-                        style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
-                        onPress={handleStepAction}
-                        disabled={loading || !otpCompleted}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="white" />
-                        ) : (
-                            <Text style={styles.otpSubmitText}>Picked Up Order</Text>
-                        )}
-                    </TouchableOpacity>
-                    {!otpCompleted && (
-                        <Text style={styles.otpProgressLabel}>Enter all 4 digits to continue</Text>
-                    )}
-                </View>
-            </View>
+            </TouchableWithoutFeedback>
         );
     }
+
+    const nextStep = navSteps.length > 0 ? navSteps[0] : null;
+
+    const renderNavIcon = (modifier: string, size = 22) => {
+        const lower = (modifier || '').toLowerCase();
+        if (lower.includes('left')) {
+            return <CornerUpLeft size={size} color="#10B981" style={{ marginRight: size === 22 ? 10 : 6 }} />;
+        } else if (lower.includes('right')) {
+            return <CornerUpRight size={size} color="#10B981" style={{ marginRight: size === 22 ? 10 : 6 }} />;
+        } else {
+            return <ArrowUp size={size} color="#10B981" style={{ marginRight: size === 22 ? 10 : 6 }} />;
+        }
+    };
 
     const isHeadingToRestaurant = activeDelivery.status === 'ASSIGNED' || activeDelivery.status === 'ARRIVED_PICKUP';
 
     return (
         <View style={styles.container}>
             {/* Map Area */}
-            {Platform.OS !== 'web' && (
-                <View style={styles.mapContainer}>
-                    <MapView
-                        style={styles.map}
-                        region={getMapRegion()}
-                        showsUserLocation={true}
-                    >
-                        {/* Rider Marker */}
-                        {currentCoords && (
-                            <Marker 
-                                coordinate={{ latitude: currentCoords.latitude, longitude: currentCoords.longitude }}
-                                title="Your Location"
-                                pinColor="blue"
-                            />
-                        )}
+            <View style={isMapFullscreen ? styles.mapContainerFullscreen : styles.mapContainer}>
+                <MapView
+                    style={styles.map}
+                    region={getMapRegion()}
+                    showsUserLocation={true}
+                    provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                >
+                    {/* Rider Marker */}
+                    <Marker 
+                        coordinate={{ 
+                            latitude: currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005), 
+                            longitude: currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005)
+                        }}
+                        title="Your Location"
+                        pinColor="blue"
+                    />
 
-                        {/* Restaurant Marker */}
-                        <Marker 
-                            coordinate={{ latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }}
-                            title={activeDelivery.restaurantName}
-                            description={activeDelivery.restaurantAddress}
-                            pinColor="red"
-                        />
+                    {/* Restaurant Marker */}
+                    <Marker 
+                        coordinate={{ latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }}
+                        title={activeDelivery.restaurantName}
+                        description={activeDelivery.restaurantAddress}
+                        pinColor="red"
+                    />
 
-                        {/* Customer Marker */}
-                        <Marker 
-                            coordinate={{ latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }}
-                            title={activeDelivery.customerName}
-                            description={activeDelivery.customerAddress}
-                            pinColor="green"
-                        />
+                    {/* Customer Marker */}
+                    <Marker 
+                        coordinate={{ latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }}
+                        title={activeDelivery.customerName}
+                        description={activeDelivery.customerAddress}
+                        pinColor="green"
+                    />
 
-                        {/* Route line mock */}
-                        {currentCoords && (
-                            <Polyline
-                                coordinates={[
-                                    { latitude: currentCoords.latitude, longitude: currentCoords.longitude },
-                                    isHeadingToRestaurant 
-                                        ? { latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }
-                                        : { latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }
-                                ]}
-                                strokeColor="#FF4732"
-                                strokeWidth={3}
-                                lineDashPattern={[5, 5]}
-                            />
-                        )}
-                    </MapView>
-                </View>
-            )}
+                    {/* Route line */}
+                    <Polyline
+                        coordinates={routeCoords.length > 0 ? routeCoords : [
+                            { 
+                                latitude: currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005), 
+                                longitude: currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005)
+                            },
+                            isHeadingToRestaurant 
+                                ? { latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }
+                                : { latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }
+                        ]}
+                        strokeColor="#FF4732"
+                        strokeWidth={4}
+                        lineDashPattern={routeCoords.length > 0 ? undefined : [5, 5]}
+                    />
+                </MapView>
+
+                {/* Floating Fullscreen / Minimize Toggle Button */}
+                <TouchableOpacity 
+                    style={[
+                        styles.floatingMapButton, 
+                        isMapFullscreen ? styles.floatingMapButtonFullscreen : null
+                    ]}
+                    onPress={() => setIsMapFullscreen(!isMapFullscreen)}
+                >
+                    {isMapFullscreen ? <Minimize2 size={20} color="#1F2937" /> : <Maximize2 size={20} color="#1F2937" />}
+                </TouchableOpacity>
+
+                {/* Floating Map Navigation Header */}
+                {isMapFullscreen && (
+                    <View style={styles.floatingMapHeader}>
+                        <TouchableOpacity 
+                            style={styles.floatingMapHeaderBack}
+                            onPress={() => setIsMapFullscreen(false)}
+                        >
+                            <ArrowLeft size={18} color="#1F2937" />
+                        </TouchableOpacity>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                            {nextStep ? renderNavIcon(nextStep.modifier, 22) : <Navigation size={22} color="#10B981" style={{ marginRight: 10 }} />}
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.floatingMapHeaderTitle} numberOfLines={1}>
+                                    {nextStep ? nextStep.instruction : 'Follow route to destination'}
+                                </Text>
+                                {nextStep && nextStep.distance > 0 && (
+                                    <Text style={styles.floatingMapHeaderSubtitle}>
+                                        In {nextStep.distance} meters
+                                    </Text>
+                                )}
+                            </View>
+                        </View>
+                    </View>
+                )}
+
+                {/* Floating Mini Map Navigation Banner */}
+                {!isMapFullscreen && (
+                    <View style={styles.miniMapNavBanner}>
+                        {nextStep ? renderNavIcon(nextStep.modifier, 14) : <Navigation size={14} color="#10B981" style={{ marginRight: 6 }} />}
+                        <Text style={styles.miniMapNavText} numberOfLines={1}>
+                            {nextStep 
+                                ? `${nextStep.distance > 0 ? `In ${nextStep.distance}m: ` : ''}${nextStep.instruction}`
+                                : 'Follow route to destination'
+                            }
+                        </Text>
+                    </View>
+                )}
+            </View>
 
             {/* Stepper Card */}
-            <View style={[
-                styles.stepperCard, 
-                Platform.OS === 'web' ? { 
-                    flex: 1, 
-                    height: '100%', 
-                    borderTopLeftRadius: 0, 
-                    borderTopRightRadius: 0,
-                    shadowOpacity: 0,
-                    elevation: 0
-                } : [
-                    activeDelivery.status === 'ARRIVED_PICKUP' && { height: 420 },
-                    activeDelivery.status === 'PICKED_UP' && { height: 440 }
-                ]
-            ]}>
+            {!isMapFullscreen && (
+                <View style={styles.stepperCard}>
                 {/* Stage Header */}
                 <View style={styles.cardHeaderMockup}>
                     <TouchableOpacity 
@@ -819,56 +1006,19 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     </View>
 
                     {/* Customer Instructions - delivering state */}
-                    {activeDelivery.status === 'PICKED_UP' && activeDelivery.specialInstructions ? (
+                    {activeDelivery.status === 'PICKED_UP' && (activeDelivery.specialInstructions || activeDelivery.deliveryInstructions) ? (
                         <View style={styles.customerInstructionsCard}>
-                            <Text style={styles.instructionsTitle}>CUSTOMER INSTRUCTIONS</Text>
-                            <Text style={styles.instructionsText}>{activeDelivery.specialInstructions}</Text>
+                            <Text style={styles.instructionsTitle}>DELIVERY INSTRUCTIONS</Text>
+                            {activeDelivery.deliveryInstructions ? (
+                                <Text style={[styles.instructionsText, { fontWeight: '800', color: '#D97706', marginBottom: activeDelivery.specialInstructions ? 6 : 0 }]}>
+                                    📢 Option Chosen: {activeDelivery.deliveryInstructions}
+                                </Text>
+                            ) : null}
+                            {activeDelivery.specialInstructions ? (
+                                <Text style={styles.instructionsText}>{activeDelivery.specialInstructions}</Text>
+                            ) : null}
                         </View>
                     ) : null}
-
-                    {/* Voice Message from Customer card (Frame 51141/Delivering stage) */}
-                    {activeDelivery.status === 'PICKED_UP' && (
-                        <TouchableOpacity 
-                            style={styles.voiceMessageCard}
-                            onPress={() => {
-                                if (isAudioPlaying) {
-                                    setIsAudioPlaying(false);
-                                    setAudioProgress(0);
-                                } else {
-                                    setIsAudioPlaying(true);
-                                }
-                            }}
-                        >
-                            <View style={styles.voicePlayButton}>
-                                {isAudioPlaying ? (
-                                    <Pause size={18} color="white" />
-                                ) : (
-                                    <Play size={18} color="white" style={{ marginLeft: 2 }} />
-                                )}
-                            </View>
-                            <View style={styles.voiceTextWrapper}>
-                                <Text style={styles.voiceTitle}>Voice Message from Customer</Text>
-                                <Text style={styles.voiceSubtitle}>
-                                    {isAudioPlaying 
-                                        ? `Playing (${Math.ceil(5 - (audioProgress / 100) * 5)}s remaining)`
-                                        : 'Tap to listen (0:05)'}
-                                </Text>
-                            </View>
-                        </TouchableOpacity>
-                    )}
-
-                    {/* Collect Cash on Delivery Card (Frame 51141/Delivering stage) */}
-                    {activeDelivery.status === 'PICKED_UP' && activeDelivery.paymentMethod === 'COD' && (
-                        <View style={styles.codCard}>
-                            <View style={styles.codBadge}>
-                                <Text style={styles.codBadgeText}>₹</Text>
-                            </View>
-                            <View style={styles.voiceTextWrapper}>
-                                <Text style={styles.codLabel}>COLLECT CASH ON DELIVERY</Text>
-                                <Text style={styles.codValue}>₹ {activeDelivery.totalAmount || 0}</Text>
-                            </View>
-                        </View>
-                    )}
 
                     {/* Standalone Call Customer Row Button (mockup style) */}
                     {activeDelivery.status === 'PICKED_UP' && (
@@ -990,6 +1140,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     </TouchableOpacity>
                 </View>
             </View>
+        )}
 
             {/* Cancel Modal */}
             <Modal
@@ -998,51 +1149,53 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                 transparent={true}
                 onRequestClose={() => setShowCancelModal(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Cancel Delivery</Text>
-                            <TouchableOpacity onPress={() => setShowCancelModal(false)}>
-                                <X size={20} color="#4B5563" />
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalCard}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Cancel Delivery</Text>
+                                <TouchableOpacity onPress={() => setShowCancelModal(false)}>
+                                    <X size={20} color="#4B5563" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <Text style={styles.modalLabel}>Select Reason</Text>
+                            {['Customer unavailable', 'Vehicle issue/Accident', 'Restaurant closed', 'Order damaged'].map((r) => (
+                                <TouchableOpacity 
+                                    key={r}
+                                    style={[styles.reasonBadge, cancelReason === r && styles.activeReasonBadge]}
+                                    onPress={() => setCancelReason(r)}
+                                >
+                                    <Text style={[styles.reasonBadgeText, cancelReason === r && styles.activeReasonBadgeText]}>
+                                        {r}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+
+                            <Text style={[styles.modalLabel, { marginTop: 16 }]}>Additional Details</Text>
+                            <TextInput
+                                style={styles.modalTextInput}
+                                multiline
+                                numberOfLines={3}
+                                placeholder="Explain the situation in details (required)..."
+                                value={cancelNotes}
+                                onChangeText={setCancelNotes}
+                            />
+
+                            <TouchableOpacity 
+                                style={styles.submitCancelButton}
+                                onPress={handleAbort}
+                                disabled={loading}
+                            >
+                                {loading ? (
+                                    <ActivityIndicator color="white" />
+                                ) : (
+                                    <Text style={styles.submitCancelText}>Confirm Cancellation</Text>
+                                )}
                             </TouchableOpacity>
                         </View>
-
-                        <Text style={styles.modalLabel}>Select Reason</Text>
-                        {['Customer unavailable', 'Vehicle issue/Accident', 'Restaurant closed', 'Order damaged'].map((r) => (
-                            <TouchableOpacity 
-                                key={r}
-                                style={[styles.reasonBadge, cancelReason === r && styles.activeReasonBadge]}
-                                onPress={() => setCancelReason(r)}
-                            >
-                                <Text style={[styles.reasonBadgeText, cancelReason === r && styles.activeReasonBadgeText]}>
-                                    {r}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-
-                        <Text style={[styles.modalLabel, { marginTop: 16 }]}>Additional Details</Text>
-                        <TextInput
-                            style={styles.modalTextInput}
-                            multiline
-                            numberOfLines={3}
-                            placeholder="Explain the situation in details (required)..."
-                            value={cancelNotes}
-                            onChangeText={setCancelNotes}
-                        />
-
-                        <TouchableOpacity 
-                            style={styles.submitCancelButton}
-                            onPress={handleAbort}
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <ActivityIndicator color="white" />
-                            ) : (
-                                <Text style={styles.submitCancelText}>Confirm Cancellation</Text>
-                            )}
-                        </TouchableOpacity>
                     </View>
-                </View>
+                </TouchableWithoutFeedback>
             </Modal>
         </View>
     );
@@ -1147,6 +1300,7 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginBottom: 20,
         overflow: 'hidden',
+        padding:10,
     },
     swipeTrack: {
         height: 60,
@@ -1361,7 +1515,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#F9FAFB',
     },
     mapContainer: {
-        flex: 1,
+        height: 280,
+        position: 'relative',
     },
     map: {
         width: '100%',
@@ -1373,7 +1528,7 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 28,
         paddingHorizontal: 20,
         paddingVertical: 18,
-        height: 380,
+        flex: 1,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -6 },
         shadowOpacity: 0.05,
@@ -1897,14 +2052,13 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
 
-    // OTP Full Screen Styles
+    //     // OTP Full Screen Styles
     otpFullScreenContainer: {
         flex: 1,
-        backgroundColor: 'white',
-        paddingHorizontal: 24,
-        paddingTop: 50,
-        height: '100%',
-        maxHeight: '100%',
+        backgroundColor: '#F9FAFB',
+        paddingHorizontal: 20,
+        paddingTop: Platform.OS === 'ios' ? 50 : 20,
+        position: 'relative',
     },
     otpFormScroll: {
         flex: 1,
@@ -1918,8 +2072,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         position: 'absolute',
         top: 40,
-        left: 24,
-        right: 24,
+        left: 20,
+        right: 20,
         zIndex: 100,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
@@ -1934,34 +2088,51 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     otpHeaderArea: {
-        marginTop: 20,
-        marginBottom: 20,
+        marginTop: 10,
+        marginBottom: 16,
+    },
+    otpBackButtonPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 20,
+        paddingVertical: 6,
+        paddingHorizontal: 14,
+        alignSelf: 'flex-start',
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     otpBackButton: {
         marginBottom: 16,
     },
     otpBackButtonText: {
-        fontSize: 15,
+        fontSize: 13,
         fontWeight: '700',
-        color: '#4B5563',
+        color: '#374151',
     },
     otpSubLabel: {
         fontSize: 12,
         fontWeight: '800',
-        color: '#9CA3AF',
+        color: '#FF4732',
         letterSpacing: 0.5,
     },
     otpMainTitle: {
         fontSize: 24,
         fontWeight: '900',
         color: '#1F2937',
-        marginTop: 6,
+        marginTop: 4,
     },
     otpBillHint: {
         fontSize: 13,
         color: '#6B7280',
         fontWeight: '500',
-        marginTop: 6,
+        marginTop: 4,
     },
     phoneIllustrationCard: {
         alignItems: 'center',
@@ -2014,34 +2185,43 @@ const styles = StyleSheet.create({
     },
     otpBoxesContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 12,
         width: '100%',
         position: 'relative',
+        marginVertical: 4,
     },
     otpBox: {
-        width: 44,
-        height: 52,
-        borderRadius: 12,
+        width: 48,
+        height: 56,
+        borderRadius: 14,
         borderWidth: 1.5,
         borderColor: '#E5E7EB',
-        backgroundColor: '#F9FAFB',
+        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
     },
     otpBox4: {
-        width: 56,
-        height: 60,
+        width: 58,
+        height: 62,
     },
     otpBoxFilled: {
         borderColor: '#1F2937',
-        backgroundColor: 'white',
+        backgroundColor: '#FFFFFF',
     },
     otpBoxFocused: {
         borderColor: '#FF4732',
         borderWidth: 2,
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#FF4732',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 3,
     },
     otpBoxText: {
-        fontSize: 20,
+        fontSize: 22,
         fontWeight: '800',
         color: '#1F2937',
     },
@@ -2074,10 +2254,9 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '700',
         color: '#1F2937',
-        marginBottom: 8,
     },
     helpContent: {
-        marginTop: 6,
+        marginTop: 12,
     },
     helpText: {
         fontSize: 12,
@@ -2125,8 +2304,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFF5F5',
         borderColor: '#FEB2B2',
         borderWidth: 1,
-        borderRadius: 14,
-        padding: 12,
+        borderRadius: 16,
+        padding: 14,
         marginBottom: 16,
     },
     unreachableTitle: {
@@ -2139,6 +2318,22 @@ const styles = StyleSheet.create({
         color: '#C53030',
         marginTop: 2,
         lineHeight: 16,
+    },
+    unreachableActionsRow: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 12,
+    },
+    unreachableButtonInline: {
+        flex: 1,
+        backgroundColor: 'white',
+        borderWidth: 1.5,
+        borderColor: '#FEB2B2',
+        borderRadius: 10,
+        paddingVertical: 9,
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center',
     },
     unreachableButton: {
         marginTop: 10,
@@ -2176,6 +2371,17 @@ const styles = StyleSheet.create({
         marginTop: 2,
         lineHeight: 16,
     },
+    leaveDoorButtonInline: {
+        flex: 1,
+        backgroundColor: 'white',
+        borderWidth: 1.5,
+        borderColor: '#E5E7EB',
+        borderRadius: 10,
+        paddingVertical: 9,
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center',
+    },
     leaveDoorButton: {
         marginTop: 10,
         backgroundColor: 'white',
@@ -2192,12 +2398,24 @@ const styles = StyleSheet.create({
     },
     otpFooter: {
         position: 'absolute',
-        bottom: 30,
-        left: 24,
-        right: 24,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 10,
+        zIndex: 100,
     },
     otpSubmitButton: {
-        backgroundColor: '#EF4444',
+        backgroundColor: '#FF4732',
         height: 52,
         borderRadius: 14,
         justifyContent: 'center',
@@ -2326,44 +2544,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginTop: 2,
     },
-    successCashCard: {
-        backgroundColor: '#FFFBEB',
-        borderColor: '#FDE68A',
-        borderWidth: 1,
-        borderRadius: 16,
-        width: '100%',
-        padding: 16,
-        marginBottom: 16,
-    },
-    successCashHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: '#FDE68A',
-        paddingBottom: 10,
-        marginBottom: 10,
-    },
-    successCashLabel: {
-        fontSize: 13,
-        fontWeight: '800',
-        color: '#B45309',
-    },
-    successCashVal: {
-        fontSize: 20,
-        fontWeight: '900',
-        color: '#B45309',
-    },
-    successCashNotice: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    successCashNoticeText: {
-        fontSize: 11,
-        color: '#B45309',
-        fontWeight: '600',
-        flex: 1,
-    },
     successExcellenceCard: {
         backgroundColor: 'white',
         borderWidth: 1.5,
@@ -2417,5 +2597,93 @@ const styles = StyleSheet.create({
         color: '#4B5563',
         fontSize: 15,
         fontWeight: '800',
+    },
+    mapContainerFullscreen: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 10,
+        backgroundColor: '#FFFFFF',
+    },
+    floatingMapButton: {
+        position: 'absolute',
+        bottom: 20,
+        right: 10,
+        backgroundColor: '#FFFFFF',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 5,
+        zIndex: 11,
+    },
+    floatingMapButtonFullscreen: {
+        bottom: 20,
+        right: 10,
+    },
+    floatingMapHeader: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 50 : 20,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
+        zIndex: 12,
+    },
+    floatingMapHeaderBack: {
+        marginRight: 12,
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    floatingMapHeaderTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#1F2937',
+    },
+    floatingMapHeaderSubtitle: {
+        fontSize: 12,
+        color: '#6B7280',
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    miniMapNavBanner: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 50 : 16,
+        left: 12,
+        right: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        zIndex: 11,
+    },
+    miniMapNavText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#1F2937',
+        flex: 1,
     },
 });

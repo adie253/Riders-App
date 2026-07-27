@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getRiderProfile, updateRiderProfile, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus, refreshRiderToken, isTokenExpiredOrExpiringSoon } from '../../data/api';
+import { getRiderProfile, updateRiderProfile, updateRiderBankDetails, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus, refreshRiderToken, isTokenExpiredOrExpiringSoon } from '../../data/api';
 import { useToast } from './ToastContext';
+import { localStorage } from '../../utils/storage';
 
 export interface RiderProfile {
     id: string;
@@ -10,6 +11,9 @@ export interface RiderProfile {
     vehicleType: string;
     vehicleNumber: string;
     kycStatus: 'Pending' | 'Approved' | 'Rejected' | 'None' | string;
+    bankAccountNumber?: string;
+    bankIfscCode?: string;
+    bankAccountName?: string;
 }
 
 interface AuthContextType {
@@ -23,6 +27,7 @@ interface AuthContextType {
     sendOtpCode: (phoneNumber: string) => Promise<boolean>;
     verifyOtpCode: (phoneNumber: string, otp: string) => Promise<boolean>;
     updateProfile: (profileData: { name: string; email: string; vehicleNumber: string }) => Promise<boolean>;
+    updateBankDetails: (bankData: { bankAccountNumber: string; bankIfscCode: string; bankAccountName: string }) => Promise<boolean>;
     uploadKyc: (documentType: string, fileUri: string, contentType?: string, onStatusChange?: (status: string) => void) => Promise<boolean>;
     refreshProfile: () => Promise<void>;
     logout: () => void;
@@ -109,8 +114,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const response = await verifyRiderOtp(phoneNumber, otp);
             if (response && response.accessToken) {
                 setToken(response.accessToken);
-                // Fetch profile
-                const profile = await getRiderProfile();
+                // Fetch profile and KYC status concurrently
+                const [profile, kycData] = await Promise.all([
+                    getRiderProfile(),
+                    getRiderKycStatus().catch(() => null)
+                ]);
+                if (kycData && kycData.kycStatus) {
+                    profile.kycStatus = kycData.kycStatus;
+                }
                 setRiderProfile(profile);
                 showToast('Signed in successfully', 'success');
                 return true;
@@ -128,11 +139,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsUpdatingProfile(true);
         try {
             const updated = await updateRiderProfile(profileData);
-            setRiderProfile(updated);
+            setRiderProfile(prev => prev ? { ...prev, ...updated } : updated);
             showToast('Profile updated successfully', 'success');
             return true;
         } catch (error: any) {
             showToast(error.message || 'Failed to update profile', 'error');
+            return false;
+        } finally {
+            setIsUpdatingProfile(false);
+        }
+    };
+
+    const updateBankDetails = async (bankData: { bankAccountNumber: string; bankIfscCode: string; bankAccountName: string }): Promise<boolean> => {
+        setIsUpdatingProfile(true);
+        try {
+            const updated = await updateRiderBankDetails(bankData);
+            setRiderProfile(prev => prev ? { ...prev, ...updated } : updated);
+            showToast('Bank details updated successfully', 'success');
+            return true;
+        } catch (error: any) {
+            showToast(error.message || 'Failed to update bank details', 'error');
             return false;
         } finally {
             setIsUpdatingProfile(false);
@@ -258,6 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             sendOtpCode,
             verifyOtpCode,
             updateProfile,
+            updateBankDetails,
             uploadKyc,
             refreshProfile,
             logout

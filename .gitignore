@@ -31,7 +31,17 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
+.env.production
+.env.development
+.env.local
 .env*.local
+.env*
+
+# junk & scratch files
+all_ids.txt
+api_output.txt
+scratch/
 
 # typescript
 *.tsbuildinfo

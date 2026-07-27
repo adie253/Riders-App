@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from './src/presentation/context/ToastContext';
 import { AuthProvider, useAuth } from './src/presentation/context/AuthContext';
 import { DeliveryProvider } from './src/presentation/context/DeliveryContext';
+import { LanguageProvider } from './src/presentation/context/LanguageContext';
 
 // Screens
 import { SignInScreen } from './src/presentation/screens/SignInScreen';
@@ -24,6 +25,7 @@ import { HistoryScreen } from './src/presentation/screens/HistoryScreen';
 // Components
 import { PendingOfferModal } from './src/presentation/components/PendingOfferModal';
 import { LocationWarningModal } from './src/presentation/components/LocationWarningModal';
+import { LanguageSelectionModal } from './src/presentation/components/LanguageSelectionModal';
 
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BottomTabBar } from './src/presentation/components/BottomTabBar';
@@ -71,12 +73,15 @@ const AppNavigator = () => {
   }
 
   // Authenticated but registration details or KYC not approved -> KYC screen
-  if (!riderProfile?.name || !riderProfile?.vehicleNumber || riderProfile?.kycStatus !== 'Verified') {
+  if (!riderProfile || riderProfile.kycStatus !== 'Verified') {
     return (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Kyc" component={KycScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-      </Stack.Navigator>
+      <>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Kyc" component={KycScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+        </Stack.Navigator>
+        <LanguageSelectionModal />
+      </>
     );
   }
 
@@ -89,6 +94,7 @@ const AppNavigator = () => {
       </Stack.Navigator>
       <PendingOfferModal />
       <LocationWarningModal />
+      <LanguageSelectionModal />
     </>
   );
 };
@@ -117,14 +123,16 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <ToastProvider>
-          <AuthProvider>
-            <DeliveryProvider>
-              <NavigationContainer>
-                <StatusBar style="dark" />
-                <AppNavigator />
-              </NavigationContainer>
-            </DeliveryProvider>
-          </AuthProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <DeliveryProvider>
+                <NavigationContainer>
+                  <StatusBar style="dark" />
+                  <AppNavigator />
+                </NavigationContainer>
+              </DeliveryProvider>
+            </AuthProvider>
+          </LanguageProvider>
         </ToastProvider>
       </SafeAreaProvider>
     </QueryClientProvider>

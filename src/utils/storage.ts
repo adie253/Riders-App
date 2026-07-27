@@ -50,6 +50,9 @@ class StorageMock {
 export const localStorageMock = new StorageMock('local_');
 export const sessionStorageMock = new StorageMock('session_');
 
+export const localStorage = localStorageMock;
+export const sessionStorage = sessionStorageMock;
+
 export const initStorage = async (): Promise<void> => {
     try {
         const allKeys = await AsyncStorage.getAllKeys();

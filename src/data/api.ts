@@ -1,3 +1,5 @@
+import { localStorage } from '../utils/storage';
+
 const BASE_URL = 'https://rally-staging-9ae8.up.railway.app/api/v1';
 
 export const sendRiderOtp = async (phoneNumber: string): Promise<any> => {
@@ -167,6 +169,23 @@ export const updateRiderProfile = async (profileData: { name: string; email: str
         return await response.json();
     } catch (error) {
         console.error('Error in updateRiderProfile:', error);
+        throw error;
+    }
+};
+
+export const updateRiderBankDetails = async (bankDetails: { bankAccountNumber: string; bankIfscCode: string; bankAccountName: string }): Promise<any> => {
+    try {
+        const response = await authFetch('/riders/bank', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bankDetails)
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to update bank details: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error in updateRiderBankDetails:', error);
         throw error;
     }
 };

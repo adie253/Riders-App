@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { FileText, CheckCircle2, Clock, AlertTriangle, Upload, ArrowRight, ShieldCheck, Landmark, User, CreditCard, HelpCircle, FileCheck, LogOut, RefreshCw, Lock, X, ArrowLeft } from 'lucide-react-native';
 import { getRiderKycStatus } from '../../data/api';
 import * as ImagePicker from 'expo-image-picker';
+import { localStorage } from '../../utils/storage';
 
 type KycStep = 'documents' | 'bank' | 'review' | 'approved';
 
@@ -52,9 +53,9 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
 
     const [hasLoadedInitialStatus, setHasLoadedInitialStatus] = useState(false);
 
-    const loadServerKycStatus = async () => {
+    const loadServerKycStatus = async (isBackground = false) => {
         if (!riderProfile) return;
-        setLoading(true);
+        if (!isBackground) setLoading(true);
         try {
             // Load local flags as a fallback/cache
             const localAadhaarFront = localStorage.getItem(`kyc_aadhaar_front_uploaded_${riderProfile.id}`) === 'true';
@@ -115,7 +116,7 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
         } catch (e) {
             console.warn('Failed to load server KYC status:', e);
         } finally {
-            setLoading(false);
+            if (!isBackground) setLoading(false);
         }
     };
 
@@ -126,6 +127,23 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
             setHasLoadedInitialStatus(true);
         }
     }, [riderProfile, hasLoadedInitialStatus]);
+
+    // Periodically refresh KYC status in the background when in review state (every 15 seconds)
+    useEffect(() => {
+        if (!riderProfile || currentScreen !== 'review') return;
+
+        const interval = setInterval(async () => {
+            try {
+                // Fetch latest profile and KYC status in background without triggering loading spinner
+                await refreshProfile();
+                await loadServerKycStatus(true);
+            } catch (err) {
+                console.warn('Failed to poll KYC status in background:', err);
+            }
+        }, 15000);
+
+        return () => clearInterval(interval);
+    }, [riderProfile, currentScreen]);
 
     const pickImage = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();

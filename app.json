@@ -16,10 +16,21 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.aditya_ekhande.riderapp",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAWfug3MZU4wo8dsc9XKQAhCYSml6YlXdw"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a9207a20-684d-4ffe-9418-6504fe87bb59"
+      }
     }
   }
 }
