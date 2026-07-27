@@ -41,3 +41,8 @@ yarn-error.*
 all_ids.txt
 api_output.txt
 scratch/
+
+# Local environment files
+.env*.local
+*.local
+
