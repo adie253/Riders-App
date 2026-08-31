@@ -4,7 +4,7 @@ import { getRiderEarnings, getDeliveryHistory } from '../../data/api';
 import { ArrowLeft, Calendar, TrendingUp, ChevronDown, ChevronUp, Download, CheckCircle, Info, Landmark } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '../context/ToastContext';
-import { useFocusEffect } from '@react-navigation/native';
+import { EarningsSkeleton } from '../components/SkeletonLoader';
 
 interface EarningStats {
     totalEarnings: number;
@@ -26,6 +26,7 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
     useFocusEffect(
         useCallback(() => {
             scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+            loadEarnings();
         }, [])
     );
 
@@ -105,8 +106,8 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
 
     if (loading) {
         return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#FF4732" />
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: insets.top }}>
+                <EarningsSkeleton />
             </View>
         );
     }

@@ -52,6 +52,12 @@ const TabNavigator = () => {
   );
 };
 
+const isKycApproved = (profile: any) => {
+  if (!profile) return false;
+  const status = String(profile.kycStatus || profile.status || '').toUpperCase();
+  return status === 'VERIFIED' || status === 'APPROVED' || status === 'COMPLETED' || profile.isKycApproved === true;
+};
+
 const AppNavigator = () => {
   const { isAuthenticated, riderProfile, isLoading } = useAuth();
 
@@ -73,7 +79,7 @@ const AppNavigator = () => {
   }
 
   // Authenticated but registration details or KYC not approved -> KYC screen
-  if (!riderProfile || riderProfile.kycStatus !== 'Verified') {
+  if (!riderProfile || !isKycApproved(riderProfile)) {
     return (
       <>
         <Stack.Navigator screenOptions={{ headerShown: false }}>

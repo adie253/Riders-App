@@ -61,19 +61,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
 
                 if (storedToken && isTokenValid()) {
-                    setToken(storedToken);
-                    // Fetch profile and real KYC status concurrently
+                    // Fetch profile and real KYC status concurrently before setting token state
                     const [profile, kycData] = await Promise.all([
-                        getRiderProfile(),
-                        getRiderKycStatus().catch(() => null) // Fallback if it fails
+                        getRiderProfile().catch(() => null),
+                        getRiderKycStatus().catch(() => null)
                     ]);
                     
-                    // Merge real KYC status into the profile if available
-                    if (kycData && kycData.kycStatus) {
-                        profile.kycStatus = kycData.kycStatus;
+                    if (profile) {
+                        const mergedStatus = kycData?.kycStatus || kycData?.status || profile.kycStatus;
+                        if (mergedStatus) {
+                            profile.kycStatus = mergedStatus;
+                        }
+                        // Batch state updates together so AppNavigator does not flash KYC screen
+                        setRiderProfile(profile);
+                        setToken(storedToken);
+                    } else {
+                        setToken(storedToken);
                     }
-                    
-                    setRiderProfile(profile);
                 } else {
                     // Token invalid/expired and refresh failed
                     logout();
@@ -113,16 +117,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             const response = await verifyRiderOtp(phoneNumber, otp);
             if (response && response.accessToken) {
-                setToken(response.accessToken);
-                // Fetch profile and KYC status concurrently
+                // Ensure token is stored in localStorage for authFetch requests
+                localStorage.setItem('rider_token', response.accessToken);
+                
+                // Fetch profile and KYC status concurrently BEFORE triggering navigation re-render
                 const [profile, kycData] = await Promise.all([
-                    getRiderProfile(),
+                    getRiderProfile().catch(() => null),
                     getRiderKycStatus().catch(() => null)
                 ]);
-                if (kycData && kycData.kycStatus) {
-                    profile.kycStatus = kycData.kycStatus;
+                
+                if (profile) {
+                    const mergedStatus = kycData?.kycStatus || kycData?.status || profile.kycStatus;
+                    if (mergedStatus) {
+                        profile.kycStatus = mergedStatus;
+                    }
+                    // Set both states at the exact same moment to switch straight to Dashboard
+                    setRiderProfile(profile);
+                    setToken(response.accessToken);
+                } else {
+                    setToken(response.accessToken);
                 }
-                setRiderProfile(profile);
                 showToast('Signed in successfully', 'success');
                 return true;
             }

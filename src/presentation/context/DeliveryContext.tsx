@@ -750,7 +750,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
             const success = await markArrivedPickup(activeDelivery.id);
             if (success) {
-                showToast('Arrived at restaurant. Verify pickup code.', 'success');
                 setActiveDelivery(prev => prev ? { ...prev, status: 'ARRIVED_PICKUP' } : null);
                 return true;
             }
@@ -767,14 +766,13 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
             const success = await markPickedUp(activeDelivery.id, pickupCode);
             if (success) {
-                showToast('Pickup verified! Out for delivery.', 'success');
                 setActiveDelivery(prev => prev ? { ...prev, status: 'PICKED_UP' } : null);
                 return true;
             }
             showToast('Invalid pickup code', 'error');
             return false;
         } catch (e: any) {
-            showToast(e.message || 'Invalid pickup code. Check with restaurant.', 'error');
+            showToast(e.message || 'Invalid pickup code', 'error');
             return false;
         }
     };
@@ -784,7 +782,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
             const success = await markArrivedDrop(activeDelivery.id);
             if (success) {
-                showToast('Arrived at customer location. Request drop code.', 'success');
                 setActiveDelivery(prev => prev ? { ...prev, status: 'ARRIVED_DROP' } : null);
                 return true;
             }
@@ -802,7 +799,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         try {
             const success = await markDelivered(activeDelivery.id, dropCode);
             if (success) {
-                showToast('Delivery completed! Earnings added.', 'success');
                 const startTime = Number(localStorage.getItem('active_delivery_start_time'));
                 if (startTime) {
                     const diffMs = Date.now() - startTime;
@@ -817,7 +813,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             showToast('Invalid delivery verification code', 'error');
             return false;
         } catch (e: any) {
-            showToast(e.message || 'Invalid code. Ask customer for the delivery code.', 'error');
+            showToast(e.message || 'Invalid delivery code', 'error');
             return false;
         } finally {
             isCompletingDeliveryRef.current = false;

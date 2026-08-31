@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, ActivityIndicator, Dimensions, Vibration } from 'react-native';
 import { useDelivery } from '../context/DeliveryContext';
 import { useNavigation } from '@react-navigation/native';
 import { MapPin, X, AlertTriangle } from 'lucide-react-native';
@@ -22,33 +22,80 @@ export const PendingOfferModal = () => {
     const audioCtxRef = useRef<any>(null);
     const intervalIdRef = useRef<any>(null);
 
-    // Continuous Ringtone Playback
+    // Continuous Ringtone Playback & Native Vibration (Swiggy / Zomato Style)
     useEffect(() => {
         let isMounted = true;
 
         const startRingtone = async () => {
+            // Trigger native Swiggy/Zomato rapid vibration pattern
             try {
-                // Request/set audio category for Expo AV
+                Vibration.vibrate([0, 500, 200, 500, 200, 800, 300], true);
+            } catch (vibErr) {
+                console.warn('Vibration failed:', vibErr);
+            }
+
+            try {
+                // Request/set audio category for Expo AV with full mobile support
                 await Audio.setAudioModeAsync({
-                    playsInSilentModeIOS: true,
+                    allowsRecordingIOS: false,
                     staysActiveInBackground: true,
+                    playsInSilentModeIOS: true,
+                    shouldDuckAndroid: false,
                     playThroughEarpieceAndroid: false
                 }).catch(() => {});
 
-                const { sound } = await Audio.Sound.createAsync(
-                    { uri: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-84.wav' },
-                    { shouldPlay: true, isLooping: true, volume: 1.0 }
-                );
+                // Swiggy / Zomato high-priority ringtone audio sources
+                const audioUrls = [
+                    'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+                    'https://assets.mixkit.co/active_storage/sfx/2013/2013-84.wav',
+                    'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg'
+                ];
 
-                if (isMounted) {
-                    soundRef.current = sound;
-                } else {
-                    await sound.unloadAsync().catch(() => {});
+                let loadedSound: Audio.Sound | null = null;
+
+                for (const url of audioUrls) {
+                    if (!isMounted) break;
+                    try {
+                        const { sound } = await Audio.Sound.createAsync(
+                            { uri: url },
+                            { shouldPlay: false, isLooping: true, volume: 1.0 }
+                        );
+                        await sound.setVolumeAsync(1.0).catch(() => {});
+                        await sound.setIsLoopingAsync(true).catch(() => {});
+                        await sound.playAsync().catch(() => {});
+                        loadedSound = sound;
+                        break;
+                    } catch (urlErr) {
+                        console.warn(`Audio playback failed for ${url}:`, urlErr);
+                    }
+                }
+
+                // Local asset fallback if network audio failed
+                if (!loadedSound) {
+                    try {
+                        const ringtoneAsset = require('../../../assets/sounds/phone_ringtone.wav');
+                        const { sound } = await Audio.Sound.createAsync(
+                            ringtoneAsset,
+                            { shouldPlay: false, isLooping: true, volume: 1.0 }
+                        );
+                        await sound.setVolumeAsync(1.0).catch(() => {});
+                        await sound.setIsLoopingAsync(true).catch(() => {});
+                        await sound.playAsync().catch(() => {});
+                        loadedSound = sound;
+                    } catch (localErr) {
+                        console.warn('Local ringtone asset fallback failed:', localErr);
+                    }
+                }
+
+                if (isMounted && loadedSound) {
+                    soundRef.current = loadedSound;
+                } else if (loadedSound) {
+                    await loadedSound.unloadAsync().catch(() => {});
                 }
             } catch (err) {
-                console.warn('Expo Audio playback failed, trying Web Audio fallback:', err);
+                console.warn('Expo Audio playback failed, using Swiggy/Zomato Web Audio synthesizer:', err);
                 
-                // Web Audio fallback for browser execution
+                // Swiggy / Zomato Dual-Beep Loud Chime Synthesizer
                 if (isMounted && typeof window !== 'undefined') {
                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
                     if (AudioContextClass) {
@@ -56,28 +103,39 @@ export const PendingOfferModal = () => {
                             const ctx = new AudioContextClass();
                             audioCtxRef.current = ctx;
 
-                            const playChime = () => {
+                            const playSwiggyZomatoRing = () => {
                                 if (!ctx || ctx.state === 'suspended') return;
                                 const now = ctx.currentTime;
-                                const osc = ctx.createOscillator();
-                                const gain = ctx.createGain();
                                 
-                                osc.type = 'sine';
-                                osc.frequency.setValueAtTime(587.33, now); // D5
-                                
-                                gain.gain.setValueAtTime(0, now);
-                                gain.gain.linearRampToValueAtTime(0.15, now + 0.1);
-                                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-                                
-                                osc.connect(gain);
-                                gain.connect(ctx.destination);
-                                
-                                osc.start(now);
-                                osc.stop(now + 0.9);
+                                // High chime 1 (A5)
+                                const osc1 = ctx.createOscillator();
+                                const gain1 = ctx.createGain();
+                                osc1.type = 'sine';
+                                osc1.frequency.setValueAtTime(880, now);
+                                gain1.gain.setValueAtTime(0, now);
+                                gain1.gain.linearRampToValueAtTime(0.35, now + 0.04);
+                                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                                osc1.connect(gain1);
+                                gain1.connect(ctx.destination);
+                                osc1.start(now);
+                                osc1.stop(now + 0.35);
+
+                                // High chime 2 (D6 - Zomato signature tone)
+                                const osc2 = ctx.createOscillator();
+                                const gain2 = ctx.createGain();
+                                osc2.type = 'sine';
+                                osc2.frequency.setValueAtTime(1174.66, now + 0.12);
+                                gain2.gain.setValueAtTime(0, now + 0.12);
+                                gain2.gain.linearRampToValueAtTime(0.4, now + 0.16);
+                                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                                osc2.connect(gain2);
+                                gain2.connect(ctx.destination);
+                                osc2.start(now + 0.12);
+                                osc2.stop(now + 0.55);
                             };
 
-                            playChime();
-                            intervalIdRef.current = setInterval(playChime, 1500);
+                            playSwiggyZomatoRing();
+                            intervalIdRef.current = setInterval(playSwiggyZomatoRing, 650);
                         } catch (webAudioErr) {
                             console.warn('Web Audio fallback failed:', webAudioErr);
                         }
@@ -92,6 +150,13 @@ export const PendingOfferModal = () => {
 
         return () => {
             isMounted = false;
+            // Stop native vibration
+            try {
+                Vibration.cancel();
+            } catch (vibErr) {
+                console.warn('Vibration cancel failed:', vibErr);
+            }
+
             // Stop and unload Expo AV sound
             if (soundRef.current) {
                 const snd = soundRef.current;

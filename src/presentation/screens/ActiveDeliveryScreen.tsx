@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Linking, Dimensions, Platform, PanResponder, Animated, Keyboard, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Linking, Dimensions, Platform, PanResponder, Animated, Keyboard, TouchableWithoutFeedback, StatusBar } from 'react-native';
+import * as Location from 'expo-location';
 import { useDelivery } from '../context/DeliveryContext';
 import { useToast } from '../context/ToastContext';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, UrlTile, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { localStorage } from '../../utils/storage';
-import { 
-    Phone, MapPin, Check, AlertTriangle, ArrowRight, Clipboard, X, 
+import {
+    Phone, MapPin, Check, AlertTriangle, ArrowRight, Clipboard, X,
     ChevronDown, ChevronUp, Navigation, Play, Pause, Volume2, ArrowLeft, Shield, Clock, User, Maximize2, Minimize2,
     CornerUpLeft, CornerUpRight, ArrowUp
 } from 'lucide-react-native';
@@ -65,18 +67,18 @@ const SwipeButton = ({ text, onSwipeSuccess, color = '#A31D1D' }: { text: string
     ).current;
 
     return (
-        <View 
+        <View
             style={styles.swipeTrack}
             onLayout={(e) => {
                 containerWidthRef.current = e.nativeEvent.layout.width;
             }}
         >
             <Text style={styles.swipeText}>{text}</Text>
-            
+
             <Animated.View
                 style={[
                     styles.swipeHandle,
-                    { 
+                    {
                         backgroundColor: color,
                         transform: [{ translateX: pan.x }]
                     }
@@ -90,17 +92,18 @@ const SwipeButton = ({ text, onSwipeSuccess, color = '#A31D1D' }: { text: string
 };
 
 export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
-    const { 
-        activeDelivery, 
+    const {
+        activeDelivery,
         currentCoords,
-        arrivedRestaurant, 
-        confirmOrderPickup, 
-        arrivedCustomer, 
-        completeDelivery, 
+        arrivedRestaurant,
+        confirmOrderPickup,
+        arrivedCustomer,
+        completeDelivery,
         abortDelivery,
         clearActiveDelivery
     } = useDelivery();
     const { showToast } = useToast();
+    const insets = useSafeAreaInsets();
 
     const formatShowToRestaurantCode = (orderNumber: string) => {
         if (!orderNumber) return { line1: '', line2: '' };
@@ -139,6 +142,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
     const [audioProgress, setAudioProgress] = useState(0);
     const audioTimerRef = useRef<any>(null);
+    const isNavigatingRef = useRef(false);
 
     const [otpCode, setOtpCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -149,46 +153,43 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     const [isMapFullscreen, setIsMapFullscreen] = useState(false);
     const [navSteps, setNavSteps] = useState<{ instruction: string; distance: number; modifier: string }[]>([]);
     const otpInputRef = useRef<TextInput>(null);
+    const fadeAnim = useRef(new Animated.Value(0)).current;
 
-    // Handle voice message simulation
     useEffect(() => {
-        if (isAudioPlaying) {
-            audioTimerRef.current = setInterval(() => {
-                setAudioProgress((prev) => {
-                    if (prev >= 100) {
-                        clearInterval(audioTimerRef.current);
-                        setIsAudioPlaying(false);
-                        return 0;
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 350,
+            useNativeDriver: true,
+        }).start();
+    }, []);
+
+    // Get real GPS location on mount if context coords not available yet
+    useEffect(() => {
+        (async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                    if (loc && loc.coords) {
+                        setLocalGpsCoords({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
                     }
-                    return prev + 5;
-                });
-            }, 250);
-        } else {
-            if (audioTimerRef.current) {
-                clearInterval(audioTimerRef.current);
+                }
+            } catch (e) {
+                console.warn('GPS location fetch warning:', e);
             }
-        }
-        return () => {
-            if (audioTimerRef.current) {
-                clearInterval(audioTimerRef.current);
-            }
-        };
-    }, [isAudioPlaying]);
+        })();
+    }, []);
 
-    // Handle initial navigation redirect if no active delivery
-    useEffect(() => {
-        if (!activeDelivery) {
-            navigation.navigate('MainTabs', { screen: 'Dashboard' });
-        }
-    }, [activeDelivery]);
+    const effectiveRiderLat = currentCoords?.latitude || localGpsCoords?.latitude || activeDelivery?.restaurantLatitude || 18.5204;
+    const effectiveRiderLng = currentCoords?.longitude || localGpsCoords?.longitude || activeDelivery?.restaurantLongitude || 73.8567;
 
     // Fetch real driving route from OSRM router
     useEffect(() => {
         if (!activeDelivery) return;
 
-        const startLat = currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005);
-        const startLng = currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005);
-        
+        const startLat = effectiveRiderLat;
+        const startLng = effectiveRiderLng;
+
         const isHeadingToRes = activeDelivery.status === 'ASSIGNED' || activeDelivery.status === 'ARRIVED_PICKUP';
         const destLat = isHeadingToRes ? activeDelivery.restaurantLatitude : activeDelivery.customerLatitude;
         const destLng = isHeadingToRes ? activeDelivery.restaurantLongitude : activeDelivery.customerLongitude;
@@ -264,8 +265,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             active = false;
         };
     }, [
-        currentCoords?.latitude, 
-        currentCoords?.longitude, 
+        currentCoords?.latitude,
+        currentCoords?.longitude,
         activeDelivery?.status,
         activeDelivery?.restaurantLatitude,
         activeDelivery?.restaurantLongitude,
@@ -378,8 +379,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
     // Calculate map region containing rider and target
     const getMapRegion = () => {
-        const riderLat = currentCoords?.latitude || (activeDelivery.restaurantLatitude - 0.005);
-        const riderLng = currentCoords?.longitude || (activeDelivery.restaurantLongitude - 0.005);
+        const riderLat = effectiveRiderLat;
+        const riderLng = effectiveRiderLng;
 
         let destLat = activeDelivery.restaurantLatitude;
         let destLng = activeDelivery.restaurantLongitude;
@@ -410,12 +411,12 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             const digit = otpCode[i] || '';
             const isFocused = i === otpCode.length;
             boxes.push(
-                <TouchableOpacity 
-                    key={i} 
+                <TouchableOpacity
+                    key={i}
                     activeOpacity={1}
                     onPress={() => otpInputRef.current?.focus()}
                     style={[
-                        styles.otpBox, 
+                        styles.otpBox,
                         digit !== '' && styles.otpBoxFilled,
                         isFocused && styles.otpBoxFocused
                     ]}
@@ -425,7 +426,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             );
         }
         return (
-            <TouchableOpacity 
+            <TouchableOpacity
                 activeOpacity={1}
                 onPress={() => otpInputRef.current?.focus()}
                 style={styles.otpBoxesContainer}
@@ -460,12 +461,12 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             const digit = otpCode[i] || '';
             const isFocused = i === otpCode.length;
             boxes.push(
-                <TouchableOpacity 
-                    key={i} 
+                <TouchableOpacity
+                    key={i}
                     activeOpacity={1}
                     onPress={() => otpInputRef.current?.focus()}
                     style={[
-                        styles.otpBox, 
+                        styles.otpBox,
                         styles.otpBox4,
                         digit !== '' && styles.otpBoxFilled,
                         isFocused && styles.otpBoxFocused
@@ -476,7 +477,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             );
         }
         return (
-            <TouchableOpacity 
+            <TouchableOpacity
                 activeOpacity={1}
                 onPress={() => otpInputRef.current?.focus()}
                 style={styles.otpBoxesContainer}
@@ -536,8 +537,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     </View>
                     <View style={styles.successStatBox}>
                         <Text style={styles.successStatVal}>
-                            {activeDelivery.distanceKm && Number(activeDelivery.distanceKm) > 0 
-                                ? activeDelivery.distanceKm 
+                            {activeDelivery.distanceKm && Number(activeDelivery.distanceKm) > 0
+                                ? activeDelivery.distanceKm
                                 : '3.5'} km
                         </Text>
                         <Text style={styles.successStatLabel}>Distance</Text>
@@ -552,9 +553,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                 {/* Buttons */}
                 <View style={styles.successActions}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.successHomeButton}
                         onPress={() => {
+                            isNavigatingRef.current = true;
                             clearActiveDelivery();
                             navigation.navigate('MainTabs', { screen: 'Dashboard' });
                         }}
@@ -562,9 +564,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                         <Text style={styles.successHomeButtonText}>Back to Home</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.successViewEarningsButton}
                         onPress={() => {
+                            isNavigatingRef.current = true;
                             clearActiveDelivery();
                             navigation.navigate('MainTabs', { screen: 'Earnings' });
                         }}
@@ -593,8 +596,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                     {/* Header */}
                     <View style={styles.otpHeaderArea}>
-                        <TouchableOpacity 
-                            style={styles.otpBackButtonPill} 
+                        <TouchableOpacity
+                            style={styles.otpBackButtonPill}
                             onPress={() => {
                                 setOtpCode('');
                                 showToast('Please enter the customer code to complete delivery.', 'info');
@@ -609,8 +612,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                         <Text style={styles.otpBillHint}>Ask customer for the 4-digit OTP shown in their app</Text>
                     </View>
 
-                    <ScrollView 
-                        style={styles.otpFormScroll} 
+                    <ScrollView
+                        style={styles.otpFormScroll}
                         contentContainerStyle={{ flexGrow: 1, paddingBottom: 120 }}
                         showsVerticalScrollIndicator={false}
                     >
@@ -640,8 +643,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                         {/* Collapsible How to get OTP Card */}
                         <View style={styles.helpCardContainer}>
-                            <TouchableOpacity 
-                                style={styles.helpToggle} 
+                            <TouchableOpacity
+                                style={styles.helpToggle}
                                 onPress={() => setShowHelpHolder(!showHelpHolder)}
                             >
                                 <Text style={styles.helpToggleText}>How to get OTP?</Text>
@@ -672,16 +675,16 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                                 <Text style={styles.unreachableTitle}>Customer Not Responding?</Text>
                                 <Text style={styles.unreachableText}>If customer is not answering calls or door, use options below</Text>
                                 <View style={styles.unreachableActionsRow}>
-                                    <TouchableOpacity 
-                                        style={styles.unreachableButtonInline} 
+                                    <TouchableOpacity
+                                        style={styles.unreachableButtonInline}
                                         onPress={() => handleCall(activeDelivery.customerPhone)}
                                     >
                                         <Phone size={12} color="#EF4444" style={{ marginRight: 6 }} />
                                         <Text style={styles.unreachableButtonText}>Call Customer</Text>
                                     </TouchableOpacity>
 
-                                    <TouchableOpacity 
-                                        style={styles.leaveDoorButtonInline} 
+                                    <TouchableOpacity
+                                        style={styles.leaveDoorButtonInline}
                                         onPress={() => showToast('Left at door logs saved. Customer notified.', 'info')}
                                     >
                                         <MapPin size={12} color="#4B5563" style={{ marginRight: 6 }} />
@@ -694,7 +697,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                     {/* Sticky Action Button */}
                     <View style={styles.otpFooter}>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
                             onPress={handleStepAction}
                             disabled={loading || !otpCompleted}
@@ -725,8 +728,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                 <View style={styles.otpFullScreenContainer}>
                     {/* Header */}
                     <View style={styles.otpHeaderArea}>
-                        <TouchableOpacity 
-                            style={styles.otpBackButton} 
+                        <TouchableOpacity
+                            style={styles.otpBackButton}
                             onPress={() => {
                                 setIsOtpMode(false);
                                 setOtpCode('');
@@ -750,8 +753,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                     {/* Collapsible Help Card */}
                     <View style={styles.helpCardContainer}>
-                        <TouchableOpacity 
-                            style={styles.helpToggle} 
+                        <TouchableOpacity
+                            style={styles.helpToggle}
                             onPress={() => setShowHelpHolder(!showHelpHolder)}
                         >
                             <Text style={styles.helpToggleText}>How to find OTP?</Text>
@@ -776,7 +779,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                     {/* Sticky Action Button */}
                     <View style={styles.otpFooter}>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.otpSubmitButton, !otpCompleted && styles.otpSubmitButtonDisabled]}
                             onPress={handleStepAction}
                             disabled={loading || !otpCompleted}
@@ -812,27 +815,49 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     const isHeadingToRestaurant = activeDelivery.status === 'ASSIGNED' || activeDelivery.status === 'ARRIVED_PICKUP';
 
     return (
-        <View style={styles.container}>
+        <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
             {/* Map Area */}
             <View style={isMapFullscreen ? styles.mapContainerFullscreen : styles.mapContainer}>
                 <MapView
                     style={styles.map}
+                    provider={PROVIDER_GOOGLE}
                     region={getMapRegion()}
                     showsUserLocation={true}
-                    provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                    showsMyLocationButton={false}
                 >
-                    {/* Rider Marker */}
-                    <Marker 
-                        coordinate={{ 
-                            latitude: currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005), 
-                            longitude: currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005)
-                        }}
-                        title="Your Location"
-                        pinColor="blue"
+
+                    {/* Outer glow polyline (Uber effect) */}
+                    <Polyline
+                        coordinates={routeCoords.length > 0 ? routeCoords : [
+                            {
+                                latitude: effectiveRiderLat,
+                                longitude: effectiveRiderLng
+                            },
+                            isHeadingToRestaurant
+                                ? { latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }
+                                : { latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }
+                        ]}
+                        strokeColor="rgba(255, 71, 50, 0.25)"
+                        strokeWidth={8}
+                    />
+
+                    {/* Main route polyline */}
+                    <Polyline
+                        coordinates={routeCoords.length > 0 ? routeCoords : [
+                            {
+                                latitude: effectiveRiderLat,
+                                longitude: effectiveRiderLng
+                            },
+                            isHeadingToRestaurant
+                                ? { latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }
+                                : { latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }
+                        ]}
+                        strokeColor="#FF4732"
+                        strokeWidth={4}
                     />
 
                     {/* Restaurant Marker */}
-                    <Marker 
+                    <Marker
                         coordinate={{ latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }}
                         title={activeDelivery.restaurantName}
                         description={activeDelivery.restaurantAddress}
@@ -840,34 +865,18 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     />
 
                     {/* Customer Marker */}
-                    <Marker 
+                    <Marker
                         coordinate={{ latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }}
                         title={activeDelivery.customerName}
                         description={activeDelivery.customerAddress}
                         pinColor="green"
                     />
-
-                    {/* Route line */}
-                    <Polyline
-                        coordinates={routeCoords.length > 0 ? routeCoords : [
-                            { 
-                                latitude: currentCoords ? currentCoords.latitude : (activeDelivery.restaurantLatitude - 0.005), 
-                                longitude: currentCoords ? currentCoords.longitude : (activeDelivery.restaurantLongitude - 0.005)
-                            },
-                            isHeadingToRestaurant 
-                                ? { latitude: activeDelivery.restaurantLatitude, longitude: activeDelivery.restaurantLongitude }
-                                : { latitude: activeDelivery.customerLatitude, longitude: activeDelivery.customerLongitude }
-                        ]}
-                        strokeColor="#FF4732"
-                        strokeWidth={4}
-                        lineDashPattern={routeCoords.length > 0 ? undefined : [5, 5]}
-                    />
                 </MapView>
 
                 {/* Floating Fullscreen / Minimize Toggle Button */}
-                <TouchableOpacity 
+                <TouchableOpacity
                     style={[
-                        styles.floatingMapButton, 
+                        styles.floatingMapButton,
                         isMapFullscreen ? styles.floatingMapButtonFullscreen : null
                     ]}
                     onPress={() => setIsMapFullscreen(!isMapFullscreen)}
@@ -877,8 +886,8 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                 {/* Floating Map Navigation Header */}
                 {isMapFullscreen && (
-                    <View style={styles.floatingMapHeader}>
-                        <TouchableOpacity 
+                    <View style={[styles.floatingMapHeader, { top: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : insets.top + 8 }]}>
+                        <TouchableOpacity
                             style={styles.floatingMapHeaderBack}
                             onPress={() => setIsMapFullscreen(false)}
                         >
@@ -902,10 +911,10 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                 {/* Floating Mini Map Navigation Banner */}
                 {!isMapFullscreen && (
-                    <View style={styles.miniMapNavBanner}>
+                    <View style={[styles.miniMapNavBanner, { top: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : insets.top + 8 }]}>
                         {nextStep ? renderNavIcon(nextStep.modifier, 14) : <Navigation size={14} color="#10B981" style={{ marginRight: 6 }} />}
                         <Text style={styles.miniMapNavText} numberOfLines={1}>
-                            {nextStep 
+                            {nextStep
                                 ? `${nextStep.distance > 0 ? `In ${nextStep.distance}m: ` : ''}${nextStep.instruction}`
                                 : 'Follow route to destination'
                             }
@@ -917,230 +926,230 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
             {/* Stepper Card */}
             {!isMapFullscreen && (
                 <View style={styles.stepperCard}>
-                {/* Stage Header */}
-                <View style={styles.cardHeaderMockup}>
-                    <TouchableOpacity 
-                        style={styles.headerIconButton} 
-                        onPress={() => navigation.goBack()}
-                    >
-                        <ArrowLeft size={18} color="#1F2937" />
-                    </TouchableOpacity>
-                    
-                    <View style={styles.headerCenter}>
-                        <Text style={styles.headerOrderTitle}>Order #{activeDelivery.orderNumber}</Text>
-                        <View style={[
-                            styles.statusBadge, 
-                            { 
-                                backgroundColor: isHeadingToRestaurant ? '#EFF6FF' : '#EEF2FF' 
-                            }
-                        ]}>
-                            <Text style={[
-                                styles.statusBadgeText,
-                                {
-                                    color: isHeadingToRestaurant ? '#1E40AF' : '#4F46E5'
-                                }
-                            ]}>
-                                {activeDelivery.status === 'ASSIGNED' && 'Heading to Pickup'}
-                                {activeDelivery.status === 'ARRIVED_PICKUP' && 'At Restaurant'}
-                                {activeDelivery.status === 'PICKED_UP' && 'Delivering'}
-                                {activeDelivery.status === 'ARRIVED_DROP' && 'At Customer Location'}
-                            </Text>
-                        </View>
-                    </View>
-                    
-                    <TouchableOpacity 
-                        style={styles.headerIconButton}
-                        onPress={() => showToast('Emergency support team notified.', 'info')}
-                    >
-                        <Shield size={18} color="#EF4444" />
-                    </TouchableOpacity>
-                </View>
+                    {/* Stage Header */}
+                    <View style={styles.cardHeaderMockup}>
+                        <TouchableOpacity
+                            style={styles.headerIconButton}
+                            onPress={() => navigation.goBack()}
+                        >
+                            <ArrowLeft size={18} color="#1F2937" />
+                        </TouchableOpacity>
 
-                {/* Main Content Scroll Area */}
-                <ScrollView style={styles.detailsScroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                    {/* Location Panel */}
-                    <View style={styles.mockupLocationCard}>
-                        <View style={styles.locationHeaderRow}>
+                        <View style={styles.headerCenter}>
+                            <Text style={styles.headerOrderTitle}>Order #{activeDelivery.orderNumber}</Text>
                             <View style={[
-                                styles.locationIconWrapper, 
-                                { backgroundColor: isHeadingToRestaurant ? '#FEF2F2' : '#FDF2F2' }
+                                styles.statusBadge,
+                                {
+                                    backgroundColor: isHeadingToRestaurant ? '#EFF6FF' : '#EEF2FF'
+                                }
                             ]}>
-                                {isHeadingToRestaurant ? (
-                                    <MapPin size={24} color="#EF4444" />
-                                ) : (
-                                    <User size={24} color="#EF4444" />
-                                )}
-                            </View>
-                            <View style={styles.locationDetails}>
-                                <Text style={styles.locationTypeLabel}>
-                                    {isHeadingToRestaurant ? 'Pickup Location' : 'Drop Location'}
+                                <Text style={[
+                                    styles.statusBadgeText,
+                                    {
+                                        color: isHeadingToRestaurant ? '#1E40AF' : '#4F46E5'
+                                    }
+                                ]}>
+                                    {activeDelivery.status === 'ASSIGNED' && 'Heading to Pickup'}
+                                    {activeDelivery.status === 'ARRIVED_PICKUP' && 'At Restaurant'}
+                                    {activeDelivery.status === 'PICKED_UP' && 'Delivering'}
+                                    {activeDelivery.status === 'ARRIVED_DROP' && 'At Customer Location'}
                                 </Text>
-                                <Text style={styles.locationNameText}>
-                                    {isHeadingToRestaurant ? activeDelivery.restaurantName : activeDelivery.customerName}
-                                </Text>
-                                <Text style={styles.locationAddressText}>
-                                    {isHeadingToRestaurant ? activeDelivery.restaurantAddress : activeDelivery.customerAddress}
-                                </Text>
-                                <View style={styles.locationInfoRow}>
-                                    <Clock size={14} color="#6B7280" style={{ marginRight: 4 }} />
-                                    <Text style={styles.locationInfoText}>
-                                        {activeDelivery.distanceKm} km away {isHeadingToRestaurant && '• Prep time: 10 mins'}
-                                    </Text>
-                                </View>
                             </View>
                         </View>
-                        {activeDelivery.status !== 'PICKED_UP' && (
-                            <>
-                                <View style={styles.cardDivider} />
-                                <TouchableOpacity 
-                                    style={styles.cardActionButton}
-                                    onPress={() => handleCall(isHeadingToRestaurant ? activeDelivery.restaurantPhone : activeDelivery.customerPhone)}
-                                >
-                                    <Phone size={16} color="#1F2937" />
-                                    <Text style={styles.cardActionButtonText}>
-                                        {isHeadingToRestaurant ? 'Call Restaurant' : 'Call Customer'}
-                                    </Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
+
+                        <TouchableOpacity
+                            style={styles.headerIconButton}
+                            onPress={() => showToast('Emergency support team notified.', 'info')}
+                        >
+                            <Shield size={18} color="#EF4444" />
+                        </TouchableOpacity>
                     </View>
 
-                    {/* Customer Instructions - delivering state */}
-                    {activeDelivery.status === 'PICKED_UP' && (activeDelivery.specialInstructions || activeDelivery.deliveryInstructions) ? (
-                        <View style={styles.customerInstructionsCard}>
-                            <Text style={styles.instructionsTitle}>DELIVERY INSTRUCTIONS</Text>
-                            {activeDelivery.deliveryInstructions ? (
-                                <Text style={[styles.instructionsText, { fontWeight: '800', color: '#D97706', marginBottom: activeDelivery.specialInstructions ? 6 : 0 }]}>
-                                    📢 Option Chosen: {activeDelivery.deliveryInstructions}
-                                </Text>
-                            ) : null}
-                            {activeDelivery.specialInstructions ? (
-                                <Text style={styles.instructionsText}>{activeDelivery.specialInstructions}</Text>
-                            ) : null}
-                        </View>
-                    ) : null}
-
-                    {/* Standalone Call Customer Row Button (mockup style) */}
-                    {activeDelivery.status === 'PICKED_UP' && (
-                        <TouchableOpacity 
-                            style={styles.mockupCallRowButton}
-                            onPress={() => handleCall(activeDelivery.customerPhone)}
-                        >
-                            <Phone size={16} color="#1F2937" style={{ marginRight: 8 }} />
-                            <Text style={styles.mockupCallRowText}>
-                                Call Customer<Text style={styles.mockupCallRowTextMasked}> (Masked Number)</Text>
-                            </Text>
-                        </TouchableOpacity>
-                    )}
-
-                    {/* Stage 2: At Restaurant - Show Badge page (Frame 51148) */}
-                    {activeDelivery.status === 'ARRIVED_PICKUP' && (
-                        <View style={styles.mockupShowRestaurantCard}>
-                            <Text style={styles.showRestaurantLabel}>SHOW THIS TO RESTAURANT</Text>
-                            <Text style={styles.showRestaurantCodeLarge}>
-                                {(() => {
-                                    const code = formatShowToRestaurantCode(activeDelivery.orderNumber);
-                                    return `${code.line1}\n${code.line2}`;
-                                })()}
-                            </Text>
-
-                            {/* Item Checklist */}
-                            <TouchableOpacity 
-                                style={[styles.checklistCard, itemsChecked && styles.checklistCardChecked]}
-                                onPress={() => setItemsChecked(!itemsChecked)}
-                            >
-                                {itemsChecked ? (
-                                    <View style={styles.checkRow}>
-                                        <Check size={18} color="#10B981" style={{ marginRight: 8 }} />
-                                        <Text style={[styles.checkText, styles.checkTextChecked]}>All items checked</Text>
-                                    </View>
-                                ) : (
-                                    <View style={styles.checkRow}>
-                                        <AlertTriangle size={18} color="#EF4444" style={{ marginRight: 8 }} />
-                                        <Text style={styles.checkText}>Check all items before pickup</Text>
-                                    </View>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    {/* Order items list (when heading to restaurant, or delivering) */}
-                    {activeDelivery.status !== 'ARRIVED_PICKUP' && activeDelivery.items && activeDelivery.items.length > 0 && (
-                        <View style={styles.mockupItemsContainer}>
-                            <Text style={styles.mockupItemsTitle}>Order Items</Text>
-                            {activeDelivery.items.map((item, idx) => (
-                                <View key={idx} style={styles.mockupItemRow}>
-                                    <Text style={styles.mockupItemText}>
-                                        <Text style={styles.mockupItemQty}>{item.quantity}x</Text> {item.name}
-                                    </Text>
+                    {/* Main Content Scroll Area */}
+                    <ScrollView style={styles.detailsScroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                        {/* Location Panel */}
+                        <View style={styles.mockupLocationCard}>
+                            <View style={styles.locationHeaderRow}>
+                                <View style={[
+                                    styles.locationIconWrapper,
+                                    { backgroundColor: isHeadingToRestaurant ? '#FEF2F2' : '#FDF2F2' }
+                                ]}>
+                                    {isHeadingToRestaurant ? (
+                                        <MapPin size={24} color="#EF4444" />
+                                    ) : (
+                                        <User size={24} color="#EF4444" />
+                                    )}
                                 </View>
-                            ))}
-                        </View>
-                    )}
-
-                    {/* Your Earnings display - delivering state (Column 2 & 3) */}
-                    {activeDelivery.status === 'PICKED_UP' && (
-                        <View style={styles.earningsBlockRow}>
-                            <View style={styles.earningsIconBadge}>
-                                <Text style={styles.earningsIconBadgeText}>₹</Text>
+                                <View style={styles.locationDetails}>
+                                    <Text style={styles.locationTypeLabel}>
+                                        {isHeadingToRestaurant ? 'Pickup Location' : 'Drop Location'}
+                                    </Text>
+                                    <Text style={styles.locationNameText}>
+                                        {isHeadingToRestaurant ? activeDelivery.restaurantName : activeDelivery.customerName}
+                                    </Text>
+                                    <Text style={styles.locationAddressText}>
+                                        {isHeadingToRestaurant ? activeDelivery.restaurantAddress : activeDelivery.customerAddress}
+                                    </Text>
+                                    <View style={styles.locationInfoRow}>
+                                        <Clock size={14} color="#6B7280" style={{ marginRight: 4 }} />
+                                        <Text style={styles.locationInfoText}>
+                                            {activeDelivery.distanceKm} km away {isHeadingToRestaurant && '• Prep time: 10 mins'}
+                                        </Text>
+                                    </View>
+                                </View>
                             </View>
-                            <Text style={styles.earningsRowLabel}>Your Earnings</Text>
-                            <Text style={styles.earningsRowVal}>₹ {activeDelivery.earnings}</Text>
+                            {activeDelivery.status !== 'PICKED_UP' && (
+                                <>
+                                    <View style={styles.cardDivider} />
+                                    <TouchableOpacity
+                                        style={styles.cardActionButton}
+                                        onPress={() => handleCall(isHeadingToRestaurant ? activeDelivery.restaurantPhone : activeDelivery.customerPhone)}
+                                    >
+                                        <Phone size={16} color="#1F2937" />
+                                        <Text style={styles.cardActionButtonText}>
+                                            {isHeadingToRestaurant ? 'Call Restaurant' : 'Call Customer'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </>
+                            )}
                         </View>
-                    )}
 
-                    {/* Maps Button */}
-                    <TouchableOpacity style={styles.mockupMapsButton} onPress={handleOpenMaps}>
-                        <Navigation size={16} color="#1F2937" style={{ marginRight: 8 }} />
-                        <Text style={styles.mockupMapsButtonText}>Open in Google Maps</Text>
-                    </TouchableOpacity>
-                </ScrollView>
+                        {/* Customer Instructions - delivering state */}
+                        {activeDelivery.status === 'PICKED_UP' && (activeDelivery.specialInstructions || activeDelivery.deliveryInstructions) ? (
+                            <View style={styles.customerInstructionsCard}>
+                                <Text style={styles.instructionsTitle}>DELIVERY INSTRUCTIONS</Text>
+                                {activeDelivery.deliveryInstructions ? (
+                                    <Text style={[styles.instructionsText, { fontWeight: '800', color: '#D97706', marginBottom: activeDelivery.specialInstructions ? 6 : 0 }]}>
+                                        📢 Option Chosen: {activeDelivery.deliveryInstructions}
+                                    </Text>
+                                ) : null}
+                                {activeDelivery.specialInstructions ? (
+                                    <Text style={styles.instructionsText}>{activeDelivery.specialInstructions}</Text>
+                                ) : null}
+                            </View>
+                        ) : null}
 
-                {/* Bottom Actions Footer */}
-                <View style={styles.buttonFooter}>
-                    {loading ? (
-                        <ActivityIndicator color="#A31D1D" style={{ marginVertical: 18 }} />
-                    ) : activeDelivery.status === 'ARRIVED_PICKUP' ? (
-                        <TouchableOpacity 
-                            style={[
-                                styles.mockupEnterOtpButton,
-                                !itemsChecked && styles.mockupEnterOtpButtonDisabled
-                            ]}
-                            onPress={() => {
-                                if (itemsChecked) {
-                                    setIsOtpMode(true);
-                                } else {
-                                    showToast('Please check and verify all items first.', 'warning');
-                                }
-                            }}
-                        >
-                            <Check size={18} color="white" style={{ marginRight: 8 }} />
-                            <Text style={styles.mockupEnterOtpButtonText}>Enter OTP</Text>
+                        {/* Standalone Call Customer Row Button (mockup style) */}
+                        {activeDelivery.status === 'PICKED_UP' && (
+                            <TouchableOpacity
+                                style={styles.mockupCallRowButton}
+                                onPress={() => handleCall(activeDelivery.customerPhone)}
+                            >
+                                <Phone size={16} color="#1F2937" style={{ marginRight: 8 }} />
+                                <Text style={styles.mockupCallRowText}>
+                                    Call Customer<Text style={styles.mockupCallRowTextMasked}> (Masked Number)</Text>
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {/* Stage 2: At Restaurant - Show Badge page (Frame 51148) */}
+                        {activeDelivery.status === 'ARRIVED_PICKUP' && (
+                            <View style={styles.mockupShowRestaurantCard}>
+                                <Text style={styles.showRestaurantLabel}>SHOW THIS TO RESTAURANT</Text>
+                                <Text style={styles.showRestaurantCodeLarge}>
+                                    {(() => {
+                                        const code = formatShowToRestaurantCode(activeDelivery.orderNumber);
+                                        return `${code.line1}\n${code.line2}`;
+                                    })()}
+                                </Text>
+
+                                {/* Item Checklist */}
+                                <TouchableOpacity
+                                    style={[styles.checklistCard, itemsChecked && styles.checklistCardChecked]}
+                                    onPress={() => setItemsChecked(!itemsChecked)}
+                                >
+                                    {itemsChecked ? (
+                                        <View style={styles.checkRow}>
+                                            <Check size={18} color="#10B981" style={{ marginRight: 8 }} />
+                                            <Text style={[styles.checkText, styles.checkTextChecked]}>All items checked</Text>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.checkRow}>
+                                            <AlertTriangle size={18} color="#EF4444" style={{ marginRight: 8 }} />
+                                            <Text style={styles.checkText}>Check all items before pickup</Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {/* Order items list (when heading to restaurant, or delivering) */}
+                        {activeDelivery.status !== 'ARRIVED_PICKUP' && activeDelivery.items && activeDelivery.items.length > 0 && (
+                            <View style={styles.mockupItemsContainer}>
+                                <Text style={styles.mockupItemsTitle}>Order Items</Text>
+                                {activeDelivery.items.map((item, idx) => (
+                                    <View key={idx} style={styles.mockupItemRow}>
+                                        <Text style={styles.mockupItemText}>
+                                            <Text style={styles.mockupItemQty}>{item.quantity}x</Text> {item.name}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* Your Earnings display - delivering state (Column 2 & 3) */}
+                        {activeDelivery.status === 'PICKED_UP' && (
+                            <View style={styles.earningsBlockRow}>
+                                <View style={styles.earningsIconBadge}>
+                                    <Text style={styles.earningsIconBadgeText}>₹</Text>
+                                </View>
+                                <Text style={styles.earningsRowLabel}>Your Earnings</Text>
+                                <Text style={styles.earningsRowVal}>₹ {activeDelivery.earnings}</Text>
+                            </View>
+                        )}
+
+                        {/* Maps Button */}
+                        <TouchableOpacity style={styles.mockupMapsButton} onPress={handleOpenMaps}>
+                            <Navigation size={16} color="#1F2937" style={{ marginRight: 8 }} />
+                            <Text style={styles.mockupMapsButtonText}>Open in Google Maps</Text>
                         </TouchableOpacity>
-                    ) : activeDelivery.status === 'ASSIGNED' ? (
-                        <SwipeButton 
-                            text="Arrived at Restaurant" 
-                            color="#A31D1D" 
-                            onSwipeSuccess={handleStepAction} 
-                        />
-                    ) : activeDelivery.status === 'PICKED_UP' ? (
-                        <SwipeButton 
-                            text="Reached Customer Location" 
-                            color="#A31D1D" 
-                            onSwipeSuccess={handleStepAction} 
-                        />
-                    ) : null}
+                    </ScrollView>
 
-                    <TouchableOpacity 
-                        style={styles.cancelLink}
-                        onPress={() => setShowCancelModal(true)}
-                    >
-                        <AlertTriangle size={14} color="#9CA3AF" />
-                        <Text style={styles.cancelLinkText}>Report Issue / Cancel</Text>
-                    </TouchableOpacity>
+                    {/* Bottom Actions Footer */}
+                    <View style={styles.buttonFooter}>
+                        {loading ? (
+                            <ActivityIndicator color="#A31D1D" style={{ marginVertical: 18 }} />
+                        ) : activeDelivery.status === 'ARRIVED_PICKUP' ? (
+                            <TouchableOpacity
+                                style={[
+                                    styles.mockupEnterOtpButton,
+                                    !itemsChecked && styles.mockupEnterOtpButtonDisabled
+                                ]}
+                                onPress={() => {
+                                    if (itemsChecked) {
+                                        setIsOtpMode(true);
+                                    } else {
+                                        showToast('Please check and verify all items first.', 'warning');
+                                    }
+                                }}
+                            >
+                                <Check size={18} color="white" style={{ marginRight: 8 }} />
+                                <Text style={styles.mockupEnterOtpButtonText}>Enter OTP</Text>
+                            </TouchableOpacity>
+                        ) : activeDelivery.status === 'ASSIGNED' ? (
+                            <SwipeButton
+                                text="Arrived at Restaurant"
+                                color="#A31D1D"
+                                onSwipeSuccess={handleStepAction}
+                            />
+                        ) : activeDelivery.status === 'PICKED_UP' ? (
+                            <SwipeButton
+                                text="Reached Customer Location"
+                                color="#A31D1D"
+                                onSwipeSuccess={handleStepAction}
+                            />
+                        ) : null}
+
+                        <TouchableOpacity
+                            style={styles.cancelLink}
+                            onPress={() => setShowCancelModal(true)}
+                        >
+                            <AlertTriangle size={14} color="#9CA3AF" />
+                            <Text style={styles.cancelLinkText}>Report Issue / Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </View>
-        )}
+            )}
 
             {/* Cancel Modal */}
             <Modal
@@ -1161,7 +1170,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
 
                             <Text style={styles.modalLabel}>Select Reason</Text>
                             {['Customer unavailable', 'Vehicle issue/Accident', 'Restaurant closed', 'Order damaged'].map((r) => (
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     key={r}
                                     style={[styles.reasonBadge, cancelReason === r && styles.activeReasonBadge]}
                                     onPress={() => setCancelReason(r)}
@@ -1182,7 +1191,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                                 onChangeText={setCancelNotes}
                             />
 
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.submitCancelButton}
                                 onPress={handleAbort}
                                 disabled={loading}
@@ -1197,7 +1206,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
-        </View>
+        </Animated.View>
     );
 };
 
@@ -1300,7 +1309,7 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginBottom: 20,
         overflow: 'hidden',
-        padding:10,
+        padding: 10,
     },
     swipeTrack: {
         height: 60,
@@ -2685,5 +2694,115 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#1F2937',
         flex: 1,
+    },
+    riderMarkerOuter: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: 'rgba(37, 99, 235, 0.25)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    riderMarkerInner: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#2563EB',
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#2563EB',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.4,
+        shadowRadius: 5,
+        elevation: 6,
+    },
+    markerWrapper: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 6,
+    },
+    restaurantPillBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FF4732',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        minWidth: 70,
+        minHeight: 28,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+        elevation: 6,
+    },
+    restaurantPinDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#FFFFFF',
+        marginRight: 6,
+    },
+    restaurantMarkerText: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        includeFontPadding: false,
+    },
+    customerPillBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#10B981',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        minWidth: 70,
+        minHeight: 28,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+        elevation: 6,
+    },
+    customerPinDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#FFFFFF',
+        marginRight: 6,
+    },
+    customerMarkerText: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        includeFontPadding: false,
+    },
+    pinTailRed: {
+        width: 0,
+        height: 0,
+        borderLeftWidth: 6,
+        borderRightWidth: 6,
+        borderTopWidth: 7,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderTopColor: '#FF4732',
+        marginTop: -1,
+    },
+    pinTailGreen: {
+        width: 0,
+        height: 0,
+        borderLeftWidth: 6,
+        borderRightWidth: 6,
+        borderTopWidth: 7,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderTopColor: '#10B981',
+        marginTop: -1,
     },
 });

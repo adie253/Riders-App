@@ -34,9 +34,9 @@ export const verifyRiderOtp = async (phoneNumber: string, otp: string): Promise<
         const data = await response.json();
         if (data && data.accessToken) {
             localStorage.setItem('rider_token', data.accessToken);
-            if (data.accessTokenExpiresAt) {
-                localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt);
-            }
+            // Set 10-year far-future expiry to prevent session expiration
+            const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+            localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
             if (data.refreshToken) {
                 localStorage.setItem('rider_refresh_token', data.refreshToken);
             }
@@ -53,10 +53,8 @@ export const verifyRiderOtp = async (phoneNumber: string, otp: string): Promise<
 
 export const isTokenValid = (): boolean => {
     const token = localStorage.getItem('rider_token');
-    const expiresAt = localStorage.getItem('rider_token_expires_at');
-    if (!token) return false;
-    if (!expiresAt) return true;
-    return new Date(expiresAt).getTime() > Date.now();
+    // If token exists, treat as valid so rider session never expires
+    return !!token;
 };
 
 export const isTokenExpiredOrExpiringSoon = (): boolean => {
@@ -73,7 +71,7 @@ let isRefreshingPromise: Promise<string | null> | null = null;
 
 export const refreshRiderToken = async (): Promise<string | null> => {
     const refreshToken = localStorage.getItem('rider_refresh_token');
-    if (!refreshToken) return null;
+    if (!refreshToken) return localStorage.getItem('rider_token');
 
     if (isRefreshingPromise) {
         return isRefreshingPromise;
@@ -94,19 +92,18 @@ export const refreshRiderToken = async (): Promise<string | null> => {
             const data = await response.json();
             if (data && data.accessToken) {
                 localStorage.setItem('rider_token', data.accessToken);
-                if (data.accessTokenExpiresAt) {
-                    localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt);
-                }
+                const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+                localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
                 if (data.refreshToken) {
                     localStorage.setItem('rider_refresh_token', data.refreshToken);
                 }
                 console.log('[Auth] Token refreshed successfully.');
                 return data.accessToken;
             }
-            return null;
+            return localStorage.getItem('rider_token');
         } catch (error) {
-            console.error('[Auth] Token refresh failed:', error);
-            return null;
+            console.error('[Auth] Silent token refresh fallback:', error);
+            return localStorage.getItem('rider_token');
         } finally {
             isRefreshingPromise = null;
         }
@@ -142,7 +139,23 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
         ...options,
         headers,
     };
-    return fetch(`${BASE_URL}${finalEndpoint}`, defaultOptions);
+    
+    let response = await fetch(`${BASE_URL}${finalEndpoint}`, defaultOptions);
+
+    // Auto retry with token refresh if 401 Unauthorized occurs
+    if (response.status === 401 && refreshToken) {
+        console.warn('[Auth] Received 401 Unauthorized. Attempting silent token refresh...');
+        const newToken = await refreshRiderToken();
+        if (newToken) {
+            headers.set('Authorization', `Bearer ${newToken}`);
+            response = await fetch(`${BASE_URL}${finalEndpoint}`, {
+                ...options,
+                headers
+            });
+        }
+    }
+
+    return response;
 };
 
 export const getRiderProfile = async (): Promise<any> => {
@@ -329,15 +342,32 @@ export const markDelivered = async (deliveryId: string, dropCode: string): Promi
 
 export const markFailed = async (deliveryId: string, reason: string, notes: string = '', photoUrl: string = ''): Promise<boolean> => {
     try {
+        let formattedReason = reason;
+        if (reason.toLowerCase().includes('customer')) formattedReason = 'CustomerUnavailable';
+        else if (reason.toLowerCase().includes('wrong') || reason.toLowerCase().includes('address')) formattedReason = 'WrongAddress';
+        else if (reason.toLowerCase().includes('restaurant') || reason.toLowerCase().includes('closed')) formattedReason = 'RestaurantClosed';
+        else if (reason.toLowerCase().includes('accident') || reason.toLowerCase().includes('emergency')) formattedReason = 'Accident';
+        else if (!formattedReason) formattedReason = 'Other';
+
         const response = await authFetch(`/riders/delivery/${deliveryId}/failed`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reason, notes, photoUrl })
+            body: JSON.stringify({
+                reason: formattedReason,
+                notes: notes || '',
+                photoUrl: photoUrl || ''
+            })
         });
-        return response.ok;
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || errData.message || `Failed to cancel delivery: ${response.statusText}`);
+        }
+
+        return true;
     } catch (error) {
         console.error('Error marking delivery failed:', error);
-        return false;
+        throw error;
     }
 };
 

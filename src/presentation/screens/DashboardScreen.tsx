@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions, Modal, ScrollView, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Dimensions, Modal, ScrollView, SafeAreaView, Animated } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useDelivery } from '../context/DeliveryContext';
 import { useToast } from '../context/ToastContext';
@@ -10,12 +10,14 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getDeliveryHistory } from '../../data/api';
 import { useLanguage } from '../context/LanguageContext';
 
+import { DashboardSkeleton } from '../components/SkeletonLoader';
+
 export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile } = useAuth();
-    const { 
-        isOnline, 
-        toggleDutyStatus, 
-        activeDelivery, 
+    const {
+        isOnline,
+        toggleDutyStatus,
+        activeDelivery,
         isUpdatingStatus,
     } = useDelivery();
     const { showToast } = useToast();
@@ -25,7 +27,17 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     const [isOfflineModalVisible, setOfflineModalVisible] = useState(false);
     const [todayEarnings, setTodayEarnings] = useState(0);
     const [todayOrdersCount, setTodayOrdersCount] = useState(0);
+    const [isLoadingStats, setIsLoadingStats] = useState(true);
     const scrollViewRef = useRef<ScrollView>(null);
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+        }).start();
+    }, []);
 
     const fetchPerformance = async () => {
         try {
@@ -33,18 +45,20 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
             if (history && history.items) {
                 const today = new Date();
                 const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-                
+
                 const todayDeliveries = history.items.filter((item: any) => {
                     const completedDate = new Date(item.completedAt).getTime();
                     return completedDate >= startOfToday;
                 });
-                
+
                 const earningsSum = todayDeliveries.reduce((sum: number, item: any) => sum + (item.earnings || 0), 0);
                 setTodayEarnings(earningsSum);
                 setTodayOrdersCount(todayDeliveries.length);
             }
         } catch (error) {
             console.error('Error fetching today\'s performance:', error);
+        } finally {
+            setIsLoadingStats(false);
         }
     };
 
@@ -78,8 +92,16 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     };
 
 
+    if (isLoadingStats) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6', paddingTop: insets.top }}>
+                <DashboardSkeleton />
+            </SafeAreaView>
+        );
+    }
+
     return (
-        <View style={styles.container}>
+        <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
             {/* Header */}
             <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
                 <TouchableOpacity>
@@ -124,18 +146,18 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                     ) : (
                         <View style={styles.swipeContainer}>
                             {isOnline ? (
-                                <SwipeButton 
+                                <SwipeButton
                                     key="go-offline"
                                     title={t('slideToGoOffline')}
-                                    actionType="goOffline" 
-                                    onSwipeComplete={handleRequestGoOffline} 
+                                    actionType="goOffline"
+                                    onSwipeComplete={handleRequestGoOffline}
                                 />
                             ) : (
-                                <SwipeButton 
+                                <SwipeButton
                                     key="go-online"
                                     title={t('slideToGoOnline')}
-                                    actionType="goOnline" 
-                                    onSwipeComplete={handleGoOnline} 
+                                    actionType="goOnline"
+                                    onSwipeComplete={handleGoOnline}
                                 />
                             )}
                         </View>
@@ -150,8 +172,8 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             <Text style={styles.bonusTitle}>{t('todayBonus')}</Text>
                         </View>
                         <Text style={styles.bonusSubtitle}>
-                            {Math.max(0, 10 - todayOrdersCount) > 0 
-                                ? t('moreOrdersToEarn', { count: Math.max(0, 10 - todayOrdersCount) }) 
+                            {Math.max(0, 10 - todayOrdersCount) > 0
+                                ? t('moreOrdersToEarn', { count: Math.max(0, 10 - todayOrdersCount) })
                                 : t('targetAchieved')}
                         </Text>
                         <View style={styles.progressBarBg}>
@@ -221,14 +243,14 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                             {t('goOfflineWarning')}
                         </Text>
                         <View style={styles.modalActions}>
-                            <TouchableOpacity 
-                                style={styles.modalBtnCancel} 
+                            <TouchableOpacity
+                                style={styles.modalBtnCancel}
                                 onPress={() => setOfflineModalVisible(false)}
                             >
                                 <Text style={styles.modalBtnCancelText}>{t('cancel')}</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={styles.modalBtnConfirm} 
+                            <TouchableOpacity
+                                style={styles.modalBtnConfirm}
                                 onPress={confirmGoOffline}
                             >
                                 <Text style={styles.modalBtnConfirmText}>{t('confirmGoOffline')}</Text>
@@ -237,7 +259,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
                     </View>
                 </View>
             </Modal>
-        </View>
+        </Animated.View>
     );
 };
 
