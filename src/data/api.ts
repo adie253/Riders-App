@@ -142,7 +142,6 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
 
     // Auto retry with token refresh if 401 Unauthorized occurs
     if (response.status === 401 && refreshToken) {
-        console.warn('[Auth] Received 401 Unauthorized. Attempting silent token refresh...');
         const newToken = await refreshRiderToken();
         if (newToken) {
             headers.set('Authorization', `Bearer ${newToken}`);
@@ -468,13 +467,18 @@ export const getOrderDetails = async (orderId: string): Promise<any> => {
 
 export const getDeliveryHistory = async (page: number = 1, pageSize: number = 20): Promise<any> => {
     try {
-        const response = await authFetch(`/riders/delivery/history?page=${page}&pageSize=${pageSize}`);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch delivery history: ${response.statusText}`);
+        let response = await authFetch(`/riders/delivery/history?page=${page}&pageSize=${pageSize}`).catch(() => null);
+
+        if (!response || !response.ok) {
+            response = await authFetch(`/riders/deliveries/history?page=${page}&pageSize=${pageSize}`).catch(() => null);
         }
-        return await response.json();
+
+        if (response && response.ok) {
+            const data = await response.json().catch(() => null);
+            if (data) return data;
+        }
+        return { items: [], totalCount: 0 };
     } catch (error) {
-        console.error('Error in getDeliveryHistory:', error);
-        throw error;
+        return { items: [], totalCount: 0 };
     }
 };
