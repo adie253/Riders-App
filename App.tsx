@@ -31,6 +31,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BottomTabBar } from './src/presentation/components/BottomTabBar';
 import { DashboardSkeleton } from './src/presentation/components/SkeletonLoader';
 
+import { initStorage } from './src/utils/storage';
+
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 const queryClient = new QueryClient();
@@ -117,8 +119,8 @@ export default function App() {
 
   if (!storageReady) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
-        <ActivityIndicator size="large" color="#FF4732" />
+      <View style={{ flex: 1, backgroundColor: '#F3F4F6', paddingTop: 40 }}>
+        <DashboardSkeleton />
       </View>
     );
   }
