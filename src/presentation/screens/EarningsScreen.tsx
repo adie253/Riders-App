@@ -24,13 +24,6 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
 
     const scrollViewRef = useRef<ScrollView>(null);
 
-    useFocusEffect(
-        useCallback(() => {
-            scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-            loadEarnings();
-        }, [])
-    );
-
     // Collapsible sections state
     const [isWithdrawExpanded, setIsWithdrawExpanded] = useState(false);
     const [isBreakdownExpanded, setIsBreakdownExpanded] = useState(true);
@@ -48,8 +41,10 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
 
     const availableWithdrawBalance = stats?.pendingPayout || 0;
 
-    const loadEarnings = async () => {
-        setLoading(true);
+    const loadEarnings = async (showSkeleton = false) => {
+        if (showSkeleton || !stats) {
+            setLoading(true);
+        }
         try {
             const [earningsData, historyData] = await Promise.all([
                 getRiderEarnings(),
@@ -66,9 +61,11 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
         }
     };
 
-    useEffect(() => {
-        loadEarnings();
-    }, []);
+    useFocusEffect(
+        useCallback(() => {
+            loadEarnings(false);
+        }, [])
+    );
 
     const handleConfirmWithdrawal = () => {
         const amount = withdrawType === 'full' ? availableWithdrawBalance : parseFloat(withdrawAmount);

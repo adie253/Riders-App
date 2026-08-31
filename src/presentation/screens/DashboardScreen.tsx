@@ -39,7 +39,10 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
         }).start();
     }, []);
 
-    const fetchPerformance = async () => {
+    const fetchPerformance = async (showSkeleton = false) => {
+        if (showSkeleton) {
+            setIsLoadingStats(true);
+        }
         try {
             const history = await getDeliveryHistory(1, 50);
             if (history && history.items) {
@@ -64,8 +67,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
 
     useFocusEffect(
         useCallback(() => {
-            scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-            fetchPerformance();
+            fetchPerformance(false);
         }, [])
     );
 

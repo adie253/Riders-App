@@ -35,9 +35,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const getInitialProfile = (): RiderProfile | null => {
+    try {
+        const stored = localStorage.getItem('rider_profile');
+        return stored ? JSON.parse(stored) : null;
+    } catch {
+        return null;
+    }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [token, setToken] = useState<string | null>(null);
-    const [riderProfile, setRiderProfile] = useState<RiderProfile | null>(null);
+    const [token, setToken] = useState<string | null>(() => localStorage.getItem('rider_token'));
+    const [riderProfile, setRiderProfileState] = useState<RiderProfile | null>(getInitialProfile);
+
+    const setRiderProfile = (profile: RiderProfile | null) => {
+        setRiderProfileState(profile);
+        if (profile) {
+            localStorage.setItem('rider_profile', JSON.stringify(profile));
+        } else {
+            localStorage.removeItem('rider_profile');
+        }
+    };
+
     const [isLoading, setIsLoading] = useState(true);
     const [isSendingOtp, setIsSendingOtp] = useState(false);
     const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
@@ -61,7 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
 
                 if (storedToken && isTokenValid()) {
-                    // Fetch profile and real KYC status concurrently before setting token state
+                    setToken(storedToken);
+                    // Fetch profile and real KYC status concurrently in background
                     const [profile, kycData] = await Promise.all([
                         getRiderProfile().catch(() => null),
                         getRiderKycStatus().catch(() => null)
@@ -72,11 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         if (mergedStatus) {
                             profile.kycStatus = mergedStatus;
                         }
-                        // Batch state updates together so AppNavigator does not flash KYC screen
                         setRiderProfile(profile);
-                        setToken(storedToken);
-                    } else {
-                        setToken(storedToken);
                     }
                 } else {
                     // Token invalid/expired and refresh failed

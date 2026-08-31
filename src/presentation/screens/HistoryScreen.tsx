@@ -60,7 +60,7 @@ export const HistoryScreen = ({ navigation }: { navigation: any }) => {
     const fetchHistory = useCallback(async (showRefreshIndicator = false) => {
         if (showRefreshIndicator) {
             setIsRefreshing(true);
-        } else {
+        } else if (historyItems.length === 0) {
             setIsLoading(true);
         }
         setError(null);
