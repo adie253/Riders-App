@@ -158,11 +158,10 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
 export const getRiderProfile = async (): Promise<any> => {
     try {
         const response = await authFetch('/riders/profile');
-        if (!response.ok) throw new Error(`Failed to fetch rider profile: ${response.statusText}`);
+        if (!response.ok) return null;
         return await response.json();
     } catch (error) {
-        console.error('Error in getRiderProfile:', error);
-        throw error;
+        return null;
     }
 };
 
@@ -414,10 +413,9 @@ export const getKycDocuments = async (riderId: string): Promise<any> => {
 export const getRiderKycStatus = async (): Promise<any> => {
     try {
         const response = await authFetch('/riders/kyc-status');
-        if (!response.ok) throw new Error('Failed to fetch KYC status');
+        if (!response.ok) return null;
         return await response.json();
     } catch (error) {
-        console.error('Error in getRiderKycStatus:', error);
         return null;
     }
 };
