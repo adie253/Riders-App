@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDeliveryHistory } from '../../data/api';
 
+import { HistorySkeleton } from '../components/SkeletonLoader';
+
 type OrderStatus = 'completed' | 'cancelled';
 type PeriodScope = 'month' | 'year';
 
@@ -179,9 +181,7 @@ export const HistoryScreen = ({ navigation }: { navigation: any }) => {
                 }
             >
                 {isLoading ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#FF4732" />
-                    </View>
+                    <HistorySkeleton />
                 ) : error ? (
                     <View style={styles.errorContainer}>
                         <Text style={styles.errorText}>{error}</Text>

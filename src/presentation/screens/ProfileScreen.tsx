@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { ArrowLeft, User, Phone, Mail, Award, Truck, ShieldCheck, ChevronRight, LogOut, Save, CreditCard, Building } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { ProfileSkeleton } from '../components/SkeletonLoader';
 
 export const ProfileScreen = ({ navigation }: { navigation: any }) => {
     const { riderProfile, updateProfile, updateBankDetails, isUpdatingProfile, logout } = useAuth();
@@ -37,6 +38,14 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
             setBankAccountName(riderProfile.bankAccountName || '');
         }
     }, [riderProfile]);
+
+    if (!riderProfile) {
+        return (
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 20 }}>
+                <ProfileSkeleton />
+            </View>
+        );
+    }
 
     const handleSave = async () => {
         if (!name.trim() || !email.trim() || !vehicleNumber.trim()) {

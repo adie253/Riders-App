@@ -51,81 +51,127 @@ export const Skeleton: React.FC<SkeletonProps> = ({
     );
 };
 
+// 1. Dashboard Skeleton (1-to-1 match with DashboardScreen layout)
 export const DashboardSkeleton: React.FC = () => {
     return (
         <View style={styles.container}>
-            {/* Header Skeleton */}
-            <View style={styles.headerRow}>
-                <Skeleton width={120} height={28} borderRadius={6} />
-                <Skeleton width={40} height={40} borderRadius={20} />
-            </View>
+            {/* Greeting */}
+            <Skeleton width={160} height={26} borderRadius={6} style={{ marginBottom: 20 }} />
 
-            {/* Main Status Card Skeleton */}
+            {/* Main Status Card */}
             <View style={styles.card}>
                 <View style={styles.row}>
                     <Skeleton width={80} height={80} borderRadius={40} />
                     <View style={{ flex: 1, marginLeft: 16 }}>
-                        <Skeleton width="60%" height={16} borderRadius={4} style={{ marginBottom: 8 }} />
-                        <Skeleton width="90%" height={24} borderRadius={6} />
+                        <Skeleton width="50%" height={14} borderRadius={4} style={{ marginBottom: 8 }} />
+                        <Skeleton width="80%" height={22} borderRadius={6} />
                     </View>
                 </View>
-                <Skeleton width="100%" height={54} borderRadius={16} style={{ marginTop: 16 }} />
+                <Skeleton width="100%" height={54} borderRadius={16} style={{ marginTop: 24 }} />
             </View>
 
-            {/* Performance Stats Grid Skeleton */}
+            {/* Performance Title */}
+            <Skeleton width={180} height={20} borderRadius={6} style={{ marginVertical: 16 }} />
+
+            {/* Performance Grid (2 Stat Boxes) */}
             <View style={styles.gridRow}>
-                <View style={[styles.statBox, { marginRight: 10 }]}>
-                    <Skeleton width={40} height={40} borderRadius={20} style={{ marginBottom: 12 }} />
-                    <Skeleton width="50%" height={14} borderRadius={4} style={{ marginBottom: 6 }} />
-                    <Skeleton width="75%" height={22} borderRadius={6} />
+                <View style={[styles.statBox, { marginRight: 8 }]}>
+                    <Skeleton width={36} height={36} borderRadius={18} style={{ marginBottom: 12 }} />
+                    <Skeleton width="60%" height={12} borderRadius={4} style={{ marginBottom: 8 }} />
+                    <Skeleton width="80%" height={24} borderRadius={6} />
                 </View>
-                <View style={[styles.statBox, { marginLeft: 10 }]}>
-                    <Skeleton width={40} height={40} borderRadius={20} style={{ marginBottom: 12 }} />
-                    <Skeleton width="50%" height={14} borderRadius={4} style={{ marginBottom: 6 }} />
-                    <Skeleton width="75%" height={22} borderRadius={6} />
+                <View style={[styles.statBox, { marginLeft: 8 }]}>
+                    <Skeleton width={36} height={36} borderRadius={18} style={{ marginBottom: 12 }} />
+                    <Skeleton width="60%" height={12} borderRadius={4} style={{ marginBottom: 8 }} />
+                    <Skeleton width="80%" height={24} borderRadius={6} />
                 </View>
             </View>
 
-            {/* Bonus Banner Skeleton */}
-            <View style={styles.card}>
-                <Skeleton width="40%" height={16} borderRadius={4} style={{ marginBottom: 10 }} />
-                <Skeleton width="80%" height={20} borderRadius={6} style={{ marginBottom: 16 }} />
+            {/* Bonus Incentives Card */}
+            <View style={styles.bonusCard}>
+                <Skeleton width="40%" height={14} borderRadius={4} style={{ marginBottom: 10 }} />
+                <Skeleton width="85%" height={18} borderRadius={6} style={{ marginBottom: 14 }} />
                 <Skeleton width="100%" height={8} borderRadius={4} />
             </View>
         </View>
     );
 };
 
+// 2. Earnings Skeleton (1-to-1 match with EarningsScreen layout)
 export const EarningsSkeleton: React.FC = () => {
     return (
         <View style={styles.container}>
-            {/* Header Title */}
-            <Skeleton width={140} height={28} borderRadius={6} style={{ marginBottom: 20 }} />
-
-            {/* Total Balance Card Skeleton */}
+            {/* Balance Banner Card */}
             <View style={styles.card}>
-                <Skeleton width="35%" height={14} borderRadius={4} style={{ marginBottom: 10 }} />
-                <Skeleton width="60%" height={36} borderRadius={8} style={{ marginBottom: 16 }} />
-                <Skeleton width="100%" height={44} borderRadius={12} />
+                <Skeleton width="40%" height={14} borderRadius={4} style={{ marginBottom: 8 }} />
+                <Skeleton width="65%" height={38} borderRadius={8} style={{ marginBottom: 16 }} />
+                <Skeleton width="100%" height={48} borderRadius={14} />
             </View>
 
-            {/* Weekly Goal Progress Skeleton */}
+            {/* Goal Progress Card */}
             <View style={styles.card}>
-                <Skeleton width="50%" height={18} borderRadius={6} style={{ marginBottom: 12 }} />
-                <Skeleton width="100%" height={10} borderRadius={5} style={{ marginBottom: 10 }} />
+                <Skeleton width="50%" height={16} borderRadius={4} style={{ marginBottom: 12 }} />
+                <Skeleton width="100%" height={8} borderRadius={4} style={{ marginBottom: 10 }} />
                 <Skeleton width="30%" height={14} borderRadius={4} />
             </View>
 
-            {/* History List Skeletons */}
-            <Skeleton width="45%" height={20} borderRadius={6} style={{ marginVertical: 16 }} />
-            {[1, 2, 3].map((item) => (
-                <View key={item} style={styles.listItem}>
-                    <Skeleton width={42} height={42} borderRadius={21} />
+            {/* Section Header */}
+            <Skeleton width={160} height={20} borderRadius={6} style={{ marginVertical: 16 }} />
+
+            {/* History Items */}
+            {[1, 2, 3, 4].map((key) => (
+                <View key={key} style={styles.listItem}>
+                    <Skeleton width={40} height={40} borderRadius={20} />
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Skeleton width="60%" height={16} borderRadius={4} style={{ marginBottom: 6 }} />
-                        <Skeleton width="40%" height={12} borderRadius={4} />
+                        <Skeleton width="65%" height={16} borderRadius={4} style={{ marginBottom: 6 }} />
+                        <Skeleton width="45%" height={12} borderRadius={4} />
                     </View>
-                    <Skeleton width={60} height={20} borderRadius={6} />
+                    <Skeleton width={60} height={22} borderRadius={6} />
+                </View>
+            ))}
+        </View>
+    );
+};
+
+// 3. History Skeleton (1-to-1 match with HistoryScreen card list)
+export const HistorySkeleton: React.FC = () => {
+    return (
+        <View style={styles.container}>
+            {[1, 2, 3, 4].map((key) => (
+                <View key={key} style={styles.historyCard}>
+                    <View style={styles.rowBetween}>
+                        <Skeleton width="55%" height={18} borderRadius={6} />
+                        <Skeleton width={70} height={22} borderRadius={12} />
+                    </View>
+                    <Skeleton width="40%" height={13} borderRadius={4} style={{ marginVertical: 8 }} />
+                    <View style={styles.divider} />
+                    <View style={styles.rowBetween}>
+                        <Skeleton width="30%" height={14} borderRadius={4} />
+                        <Skeleton width={80} height={16} borderRadius={4} />
+                    </View>
+                </View>
+            ))}
+        </View>
+    );
+};
+
+// 4. Profile Skeleton (1-to-1 match with ProfileScreen layout)
+export const ProfileSkeleton: React.FC = () => {
+    return (
+        <View style={styles.container}>
+            {/* Header Avatar Circle */}
+            <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                <Skeleton width={80} height={80} borderRadius={40} style={{ marginBottom: 12 }} />
+                <Skeleton width={140} height={22} borderRadius={6} style={{ marginBottom: 6 }} />
+                <Skeleton width={100} height={14} borderRadius={4} style={{ marginBottom: 12 }} />
+                <Skeleton width={120} height={26} borderRadius={13} />
+            </View>
+
+            {/* Form Input Skeletons */}
+            {[1, 2, 3, 4].map((key) => (
+                <View key={key} style={{ marginBottom: 16 }}>
+                    <Skeleton width={100} height={14} borderRadius={4} style={{ marginBottom: 6 }} />
+                    <Skeleton width="100%" height={50} borderRadius={12} />
                 </View>
             ))}
         </View>
@@ -136,16 +182,10 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         paddingHorizontal: 20,
-        paddingTop: 16,
+        paddingTop: 12,
     },
     skeleton: {
         backgroundColor: '#E5E7EB',
-    },
-    headerRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 20,
     },
     card: {
         backgroundColor: '#FFFFFF',
@@ -155,8 +195,21 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#F3F4F6',
     },
+    bonusCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: '#FEF3C7',
+    },
     row: {
         flexDirection: 'row',
+        alignItems: 'center',
+    },
+    rowBetween: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
     },
     gridRow: {
@@ -181,5 +234,18 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         borderWidth: 1,
         borderColor: '#F3F4F6',
+    },
+    historyCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+    },
+    divider: {
+        height: 1,
+        backgroundColor: '#F3F4F6',
+        marginVertical: 12,
     },
 });
