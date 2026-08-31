@@ -62,16 +62,17 @@ export const isTokenExpiredOrExpiringSoon = (): boolean => {
     const expiresAt = localStorage.getItem('rider_token_expires_at');
     if (!token) return true;
     if (!expiresAt) return false;
-    const buffer = 5 * 60 * 1000; // 5 minutes buffer
+    const buffer = 5 * 60 * 1000;
     const expiryTime = new Date(expiresAt).getTime();
-    return expiryTime - Date.now() < buffer;
+    return !isNaN(expiryTime) && (expiryTime - Date.now() < buffer);
 };
 
 let isRefreshingPromise: Promise<string | null> | null = null;
 
 export const refreshRiderToken = async (): Promise<string | null> => {
     const refreshToken = localStorage.getItem('rider_refresh_token');
-    if (!refreshToken) return localStorage.getItem('rider_token');
+    const existingToken = localStorage.getItem('rider_token');
+    if (!refreshToken) return existingToken;
 
     if (isRefreshingPromise) {
         return isRefreshingPromise;
@@ -84,26 +85,23 @@ export const refreshRiderToken = async (): Promise<string | null> => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refreshToken })
-            });
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.message || `Failed to refresh token: ${response.statusText}`);
-            }
-            const data = await response.json();
-            if (data && data.accessToken) {
-                localStorage.setItem('rider_token', data.accessToken);
-                const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
-                localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
-                if (data.refreshToken) {
-                    localStorage.setItem('rider_refresh_token', data.refreshToken);
+            }).catch(() => null);
+
+            if (response && response.ok) {
+                const data = await response.json().catch(() => null);
+                if (data && data.accessToken) {
+                    localStorage.setItem('rider_token', data.accessToken);
+                    const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+                    localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
+                    if (data.refreshToken) {
+                        localStorage.setItem('rider_refresh_token', data.refreshToken);
+                    }
+                    return data.accessToken;
                 }
-                console.log('[Auth] Token refreshed successfully.');
-                return data.accessToken;
             }
-            return localStorage.getItem('rider_token');
-        } catch (error) {
-            console.error('[Auth] Silent token refresh fallback:', error);
-            return localStorage.getItem('rider_token');
+            return existingToken;
+        } catch {
+            return existingToken;
         } finally {
             isRefreshingPromise = null;
         }
