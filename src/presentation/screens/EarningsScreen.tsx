@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { getRiderEarnings, getDeliveryHistory } from '../../data/api';
 import { ArrowLeft, Calendar, TrendingUp, ChevronDown, ChevronUp, Download, CheckCircle, Info, Landmark } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
+import { useDelivery } from '../context/DeliveryContext';
 import { useToast } from '../context/ToastContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { EarningsSkeleton } from '../components/SkeletonLoader';
@@ -15,6 +17,8 @@ interface EarningStats {
 }
 
 export const EarningsScreen = ({ navigation }: { navigation: any }) => {
+    const { isLoading: isAuthLoading } = useAuth();
+    const { isInitialLoading: isDeliveryLoading } = useDelivery();
     const [stats, setStats] = useState<EarningStats | null>(null);
     const [historyItems, setHistoryItems] = useState<any[]>([]);
     const [localWithdrawals, setLocalWithdrawals] = useState<any[]>([]);
@@ -102,7 +106,7 @@ export const EarningsScreen = ({ navigation }: { navigation: any }) => {
         setIsWithdrawExpanded(false);
     };
 
-    if (loading) {
+    if (loading || isAuthLoading || isDeliveryLoading) {
         return (
             <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: insets.top }}>
                 <EarningsSkeleton />

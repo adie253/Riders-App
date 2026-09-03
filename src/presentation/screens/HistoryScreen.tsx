@@ -5,6 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDeliveryHistory } from '../../data/api';
 
+import { useAuth } from '../context/AuthContext';
+import { useDelivery } from '../context/DeliveryContext';
+
 import { HistorySkeleton } from '../components/SkeletonLoader';
 
 type OrderStatus = 'completed' | 'cancelled';
@@ -46,6 +49,8 @@ const formatCompletedAt = (dateStr: string) => {
 };
 
 export const HistoryScreen = ({ navigation }: { navigation: any }) => {
+    const { isLoading: isAuthLoading } = useAuth();
+    const { isInitialLoading: isDeliveryLoading } = useDelivery();
     const [statusFilter, setStatusFilter] = useState<OrderStatus>('completed');
     const [periodFilter, setPeriodFilter] = useState<PeriodScope>('month');
     const insets = useSafeAreaInsets();
@@ -180,7 +185,7 @@ export const HistoryScreen = ({ navigation }: { navigation: any }) => {
                     />
                 }
             >
-                {isLoading ? (
+                {isLoading || isAuthLoading || isDeliveryLoading ? (
                     <HistorySkeleton />
                 ) : error ? (
                     <View style={styles.errorContainer}>

@@ -105,6 +105,7 @@ interface DeliveryContextType {
     isProcessingOffer: boolean;
     isUpdatingStatus: boolean;
     isLocationOff: boolean;
+    isInitialLoading: boolean;
     checkLocationStatus: () => Promise<boolean>;
     toggleDutyStatus: () => Promise<boolean>;
     acceptActiveOffer: () => Promise<boolean>;
@@ -132,6 +133,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [isProcessingOffer, setIsProcessingOffer] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const [isLocationOff, setIsLocationOff] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
 
     const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
     const pollingTimerRef = useRef<any>(null);
@@ -143,20 +145,13 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Fetch initial active delivery if authenticated
     const fetchCurrentState = useCallback(async () => {
-        if (!isAuthenticated) return;
+        if (!isAuthenticated) {
+            setIsInitialLoading(false);
+            return;
+        }
         try {
             const active = await getActiveDelivery();
             console.log('ACTIVE DELIVERY RESPONSE:', active);
-            try {
-                fetch('http://192.168.0.108:3005/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        token: localStorage.getItem('rider_token'),
-                        active: active
-                    })
-                }).catch(() => { });
-            } catch (e) { }
             if (active) {
                 // Map status robustly (e.g. RiderAssigned -> ASSIGNED)
                 const rawStatus = active.status || 'ASSIGNED';
@@ -312,6 +307,8 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         } catch (e) {
             console.error('Error fetching current active delivery:', e);
+        } finally {
+            setIsInitialLoading(false);
         }
     }, [isAuthenticated]);
 
@@ -859,6 +856,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             isProcessingOffer,
             isUpdatingStatus,
             isLocationOff,
+            isInitialLoading,
             checkLocationStatus,
             toggleDutyStatus,
             acceptActiveOffer,

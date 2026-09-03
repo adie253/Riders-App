@@ -13,12 +13,13 @@ import { useLanguage } from '../context/LanguageContext';
 import { DashboardSkeleton } from '../components/SkeletonLoader';
 
 export const DashboardScreen = ({ navigation }: { navigation: any }) => {
-    const { riderProfile } = useAuth();
+    const { riderProfile, isLoading: isAuthLoading } = useAuth();
     const {
         isOnline,
         toggleDutyStatus,
         activeDelivery,
         isUpdatingStatus,
+        isInitialLoading: isDeliveryLoading,
     } = useDelivery();
     const { showToast } = useToast();
     const insets = useSafeAreaInsets();
@@ -94,7 +95,7 @@ export const DashboardScreen = ({ navigation }: { navigation: any }) => {
     };
 
 
-    if (isLoadingStats) {
+    if (isLoadingStats || isAuthLoading || isDeliveryLoading) {
         return (
             <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6', paddingTop: insets.top }}>
                 <DashboardSkeleton />

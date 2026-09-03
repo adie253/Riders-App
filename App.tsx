@@ -97,6 +97,7 @@ const AppNavigator = () => {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="MainTabs" component={TabNavigator} />
         <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} />
+        <Stack.Screen name="Kyc" component={KycScreen} />
       </Stack.Navigator>
       <PendingOfferModal />
       <LocationWarningModal />

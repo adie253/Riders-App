@@ -816,7 +816,13 @@ export const KycScreen = ({ navigation }: { navigation: any }) => {
                                 setLoading(true);
                                 try {
                                     await refreshProfile();
-                                    // App.tsx will automatically switch the navigator once riderProfile.kycStatus === 'Verified'
+                                    if (navigation && typeof navigation.navigate === 'function') {
+                                        try {
+                                            navigation.navigate('MainTabs');
+                                        } catch {
+                                            if (navigation.canGoBack()) navigation.goBack();
+                                        }
+                                    }
                                 } catch (e) {
                                     showToast('Failed to start. Please try again.', 'error');
                                 } finally {

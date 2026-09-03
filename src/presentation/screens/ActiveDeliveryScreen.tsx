@@ -143,7 +143,7 @@ export const ActiveDeliveryScreen = ({ navigation }: { navigation: any }) => {
     const [audioProgress, setAudioProgress] = useState(0);
     const audioTimerRef = useRef<any>(null);
     const isNavigatingRef = useRef(false);
-
+    const [localGpsCoords, setLocalGpsCoords] = useState<{ latitude: number; longitude: number } | null>(null);
     const [otpCode, setOtpCode] = useState('');
     const [loading, setLoading] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);

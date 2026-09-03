@@ -2,12 +2,14 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useDelivery } from '../context/DeliveryContext';
 import { ArrowLeft, User, Phone, Mail, Award, Truck, ShieldCheck, ChevronRight, LogOut, Save, CreditCard, Building } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { ProfileSkeleton } from '../components/SkeletonLoader';
 
 export const ProfileScreen = ({ navigation }: { navigation: any }) => {
-    const { riderProfile, updateProfile, updateBankDetails, isUpdatingProfile, logout } = useAuth();
+    const { riderProfile, updateProfile, updateBankDetails, isUpdatingProfile, logout, isLoading: isAuthLoading } = useAuth();
+    const { isInitialLoading: isDeliveryLoading } = useDelivery();
     const { showToast } = useToast();
 
     const scrollViewRef = useRef<ScrollView>(null);
@@ -39,7 +41,7 @@ export const ProfileScreen = ({ navigation }: { navigation: any }) => {
         }
     }, [riderProfile]);
 
-    if (!riderProfile) {
+    if (!riderProfile || isAuthLoading || isDeliveryLoading) {
         return (
             <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 20 }}>
                 <ProfileSkeleton />

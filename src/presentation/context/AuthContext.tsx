@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getRiderProfile, updateRiderProfile, updateRiderBankDetails, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus, refreshRiderToken, isTokenExpiredOrExpiringSoon } from '../../data/api';
+import { getRiderProfile, updateRiderProfile, updateRiderBankDetails, sendRiderOtp, verifyRiderOtp, isTokenValid, generateKycUploadUrl, confirmKyc, getRiderKycStatus, refreshRiderToken, isTokenExpiredOrExpiringSoon, setUnauthorizedHandler } from '../../data/api';
 import { useToast } from './ToastContext';
 import { localStorage } from '../../utils/storage';
 
@@ -48,13 +48,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(() => localStorage.getItem('rider_token'));
     const [riderProfile, setRiderProfileState] = useState<RiderProfile | null>(getInitialProfile);
 
-    const setRiderProfile = (profile: RiderProfile | null) => {
-        setRiderProfileState(profile);
-        if (profile) {
-            localStorage.setItem('rider_profile', JSON.stringify(profile));
-        } else {
-            localStorage.removeItem('rider_profile');
-        }
+    const setRiderProfile = (profileOrFn: RiderProfile | null | ((prev: RiderProfile | null) => RiderProfile | null)) => {
+        setRiderProfileState(prev => {
+            const next = typeof profileOrFn === 'function' ? profileOrFn(prev) : profileOrFn;
+            if (next) {
+                localStorage.setItem('rider_profile', JSON.stringify(next));
+            } else {
+                localStorage.removeItem('rider_profile');
+            }
+            return next;
+        });
     };
 
     const [isLoading, setIsLoading] = useState(true);
@@ -62,6 +65,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
     const { showToast } = useToast();
+
+    const logout = useCallback(() => {
+        localStorage.removeItem('rider_token');
+        localStorage.removeItem('rider_token_expires_at');
+        localStorage.removeItem('rider_refresh_token');
+        localStorage.removeItem('rider_id');
+        setToken(null);
+        setRiderProfile(null);
+    }, []);
+
+    useEffect(() => {
+        setUnauthorizedHandler(() => {
+            console.warn('[Auth] Unauthorized handler invoked. Logging out...');
+            logout();
+        });
+    }, [logout]);
 
     // Load initial token and profile
     const loadStoredAuth = useCallback(async () => {
@@ -73,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (storedToken) {
                 // Proactively refresh on mount if token is expiring soon
                 if (isTokenExpiredOrExpiringSoon() && refreshToken) {
+                    console.log('[Auth] Startup token refresh triggered...');
                     const newToken = await refreshRiderToken();
                     if (newToken) {
                         storedToken = newToken;
@@ -80,7 +100,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
 
                 if (storedToken && isTokenValid()) {
-                    setToken(storedToken);
                     // Fetch profile and real KYC status concurrently in background
                     const [profile, kycData] = await Promise.all([
                         getRiderProfile().catch(() => null),
@@ -88,14 +107,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     ]);
                     
                     if (profile) {
+                        setToken(storedToken);
                         const mergedStatus = kycData?.kycStatus || kycData?.status || profile.kycStatus;
                         if (mergedStatus) {
                             profile.kycStatus = mergedStatus;
                         }
                         setRiderProfile(profile);
+                    } else {
+                        console.warn('[Auth] Server rejected token or rider profile unavailable. Logging out...');
+                        logout();
                     }
                 } else {
-                    // Token invalid/expired and refresh failed
+                    console.warn('[Auth] Stored token invalid or expired. Logging out...');
                     logout();
                 }
             } else {
@@ -108,7 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [logout]);
 
     useEffect(() => {
         loadStoredAuth();
@@ -169,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsUpdatingProfile(true);
         try {
             const updated = await updateRiderProfile(profileData);
-            setRiderProfile(prev => prev ? { ...prev, ...updated } : updated);
+            setRiderProfile((prev: RiderProfile | null) => prev ? { ...prev, ...updated } : updated);
             showToast('Profile updated successfully', 'success');
             return true;
         } catch (error: any) {
@@ -184,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsUpdatingProfile(true);
         try {
             const updated = await updateRiderBankDetails(bankData);
-            setRiderProfile(prev => prev ? { ...prev, ...updated } : updated);
+            setRiderProfile((prev: RiderProfile | null) => prev ? { ...prev, ...updated } : updated);
             showToast('Bank details updated successfully', 'success');
             return true;
         } catch (error: any) {
@@ -254,28 +277,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.log("refreshProfile -> profile:", profile);
             console.log("refreshProfile -> kycData:", kycData);
 
-            if (kycData && kycData.kycStatus) {
-                profile.kycStatus = kycData.kycStatus;
-            }
+            const mergedStatus = kycData?.kycStatus || kycData?.status || profile?.kycStatus;
+            const updatedProfile = profile ? { ...profile, kycStatus: mergedStatus } : null;
 
-            setRiderProfile(profile);
-            console.log("refreshProfile -> riderProfile updated to:", profile);
+            setRiderProfile(updatedProfile);
+            console.log("refreshProfile -> riderProfile updated to:", updatedProfile);
         } catch (e) {
             console.warn('Failed to refresh rider profile:', e);
         }
     };
 
-    const logout = () => {
-        localStorage.removeItem('rider_token');
-        localStorage.removeItem('rider_token_expires_at');
-        localStorage.removeItem('rider_refresh_token');
-        localStorage.removeItem('rider_id');
-        setToken(null);
-        setRiderProfile(null);
-        showToast('Logged out successfully', 'info');
-    };
-
-    const isAuthenticated = !!token && isTokenValid();
+    const isAuthenticated = !!token && isTokenValid() && !!riderProfile;
 
     // Periodically check and refresh token in the background when authenticated
     useEffect(() => {

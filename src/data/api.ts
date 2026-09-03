@@ -34,9 +34,10 @@ export const verifyRiderOtp = async (phoneNumber: string, otp: string): Promise<
         const data = await response.json();
         if (data && data.accessToken) {
             localStorage.setItem('rider_token', data.accessToken);
-            // Set 10-year far-future expiry to prevent session expiration
-            const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
-            localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
+            const jwtExpMs = getJwtExpirationMs(data.accessToken);
+            const actualExpiresAt = data.accessTokenExpiresAt 
+                || (jwtExpMs ? new Date(jwtExpMs).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+            localStorage.setItem('rider_token_expires_at', actualExpiresAt);
             if (data.refreshToken) {
                 localStorage.setItem('rider_refresh_token', data.refreshToken);
             }
@@ -51,28 +52,100 @@ export const verifyRiderOtp = async (phoneNumber: string, otp: string): Promise<
     }
 };
 
+const decodeBase64 = (str: string): string => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let output = '';
+    str = str.replace(/[^A-Za-z0-9\+\/\=]/g, '');
+    for (let i = 0; i < str.length;) {
+        const enc1 = chars.indexOf(str.charAt(i++));
+        const enc2 = chars.indexOf(str.charAt(i++));
+        const enc3 = chars.indexOf(str.charAt(i++));
+        const enc4 = chars.indexOf(str.charAt(i++));
+        const chr1 = (enc1 << 2) | (enc2 >> 4);
+        const chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+        const chr3 = ((enc3 & 3) << 6) | enc4;
+        output += String.fromCharCode(chr1);
+        if (enc3 !== 64 && enc3 !== -1) output += String.fromCharCode(chr2);
+        if (enc4 !== 64 && enc4 !== -1) output += String.fromCharCode(chr3);
+    }
+    return output;
+};
+
+export const getJwtExpirationMs = (token: string): number | null => {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (base64.length % 4 !== 0) {
+            base64 += '=';
+        }
+        const decoded = decodeBase64(base64);
+        const payload = JSON.parse(decoded);
+        if (payload && typeof payload.exp === 'number') {
+            return payload.exp * 1000;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+};
+
 export const isTokenValid = (): boolean => {
     const token = localStorage.getItem('rider_token');
-    // If token exists, treat as valid so rider session never expires
-    return !!token;
+    if (!token) return false;
+
+    // Check JWT payload expiration
+    const expMs = getJwtExpirationMs(token);
+    if (expMs !== null && expMs <= Date.now()) {
+        return false;
+    }
+
+    // Check stored expiresAt timestamp if present
+    const expiresAt = localStorage.getItem('rider_token_expires_at');
+    if (expiresAt) {
+        const t = new Date(expiresAt).getTime();
+        if (!isNaN(t) && t <= Date.now()) {
+            return false;
+        }
+    }
+
+    return true;
 };
 
 export const isTokenExpiredOrExpiringSoon = (): boolean => {
     const token = localStorage.getItem('rider_token');
-    const expiresAt = localStorage.getItem('rider_token_expires_at');
     if (!token) return true;
-    if (!expiresAt) return false;
-    const buffer = 5 * 60 * 1000;
-    const expiryTime = new Date(expiresAt).getTime();
-    return !isNaN(expiryTime) && (expiryTime - Date.now() < buffer);
+
+    const buffer = 5 * 60 * 1000; // 5 minute buffer
+
+    // Check JWT payload expiration
+    const expMs = getJwtExpirationMs(token);
+    if (expMs !== null) {
+        return expMs - Date.now() < buffer;
+    }
+
+    // Check stored expiresAt
+    const expiresAt = localStorage.getItem('rider_token_expires_at');
+    if (expiresAt) {
+        const t = new Date(expiresAt).getTime();
+        if (!isNaN(t)) {
+            return t - Date.now() < buffer;
+        }
+    }
+
+    return false;
 };
 
 let isRefreshingPromise: Promise<string | null> | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export const setUnauthorizedHandler = (handler: () => void) => {
+    unauthorizedHandler = handler;
+};
 
 export const refreshRiderToken = async (): Promise<string | null> => {
     const refreshToken = localStorage.getItem('rider_refresh_token');
-    const existingToken = localStorage.getItem('rider_token');
-    if (!refreshToken) return existingToken;
+    if (!refreshToken) return null;
 
     if (isRefreshingPromise) {
         return isRefreshingPromise;
@@ -81,27 +154,41 @@ export const refreshRiderToken = async (): Promise<string | null> => {
     isRefreshingPromise = (async () => {
         try {
             const rootApiUrl = BASE_URL.replace(/\/v1$/, '');
-            const response = await fetch(`${rootApiUrl}/auth/refresh`, {
+            let response = await fetch(`${rootApiUrl}/auth/refresh`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refreshToken })
             }).catch(() => null);
 
+            if (!response || !response.ok) {
+                response = await fetch(`${BASE_URL}/riders/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                }).catch(() => null);
+            }
+
             if (response && response.ok) {
                 const data = await response.json().catch(() => null);
-                if (data && data.accessToken) {
-                    localStorage.setItem('rider_token', data.accessToken);
-                    const farFutureExpiry = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
-                    localStorage.setItem('rider_token_expires_at', data.accessTokenExpiresAt || farFutureExpiry);
+                const newToken = data?.accessToken || data?.token;
+                if (newToken) {
+                    localStorage.setItem('rider_token', newToken);
+                    const jwtExpMs = getJwtExpirationMs(newToken);
+                    const newExpiresAt = data.accessTokenExpiresAt 
+                        || (jwtExpMs ? new Date(jwtExpMs).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+                    localStorage.setItem('rider_token_expires_at', newExpiresAt);
                     if (data.refreshToken) {
                         localStorage.setItem('rider_refresh_token', data.refreshToken);
                     }
-                    return data.accessToken;
+                    console.log('[Auth] Token preserved and refreshed successfully!');
+                    return newToken;
                 }
             }
-            return existingToken;
-        } catch {
-            return existingToken;
+            console.warn('[Auth] Token refresh request rejected by server.');
+            return null;
+        } catch (err) {
+            console.error('[Auth] Refresh token failed:', err);
+            return null;
         } finally {
             isRefreshingPromise = null;
         }
@@ -115,6 +202,7 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
     const refreshToken = localStorage.getItem('rider_refresh_token');
 
     if (token && refreshToken && isTokenExpiredOrExpiringSoon()) {
+        console.log('[Auth] Proactively refreshing expired/expiring token before API call...');
         const newToken = await refreshRiderToken();
         if (newToken) {
             token = newToken;
@@ -128,7 +216,6 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
     }
     
     let finalEndpoint = endpoint;
-    // Prevent aggressive caching on mobile, especially iOS, by appending a timestamp to GET requests
     if (!options.method || options.method.toUpperCase() === 'GET') {
         finalEndpoint += (endpoint.includes('?') ? '&' : '?') + '_ts=' + Date.now();
     }
@@ -142,6 +229,7 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
 
     // Auto retry with token refresh if 401 Unauthorized occurs
     if (response.status === 401 && refreshToken) {
+        console.log('[Auth] Received 401 Unauthorized. Retrying with refreshed token...');
         const newToken = await refreshRiderToken();
         if (newToken) {
             headers.set('Authorization', `Bearer ${newToken}`);
@@ -150,6 +238,11 @@ export const authFetch = async (endpoint: string, options: RequestInit = {}): Pr
                 headers
             });
         }
+    }
+
+    if (response.status === 401) {
+        console.warn('[Auth] 401 Unauthorized after refresh attempt. Triggering logout...');
+        unauthorizedHandler?.();
     }
 
     return response;
