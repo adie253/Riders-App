@@ -300,10 +300,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     return null;
                 });
             }
-
-            // Keep rider initially offline on startup/load
-            setIsOnline(false);
-            localStorage.setItem('rider_online', 'false');
         } catch (e) {
             console.error('Error fetching current active delivery:', e);
         } finally {
