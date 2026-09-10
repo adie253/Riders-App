@@ -369,10 +369,24 @@ export const rejectOffer = async (offerId: string, reason: string = 'Declined'):
     }
 };
 
-export const markArrivedPickup = async (deliveryId: string): Promise<boolean> => {
+export const markArrivedPickup = async (
+    deliveryId: string,
+    location?: { latitude?: number; longitude?: number } | null
+): Promise<boolean> => {
     try {
+        const hasValidCoords = location &&
+            typeof location.latitude === 'number' &&
+            typeof location.longitude === 'number' &&
+            !(location.latitude === 0 && location.longitude === 0);
+
+        const body = hasValidCoords
+            ? { latitude: location.latitude, longitude: location.longitude }
+            : {};
+
         const response = await authFetch(`/riders/delivery/${deliveryId}/arrived-pickup`, {
-            method: 'POST'
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
         });
         return response.ok;
     } catch (error) {

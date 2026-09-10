@@ -10,8 +10,12 @@ import { localStorage } from '../../utils/storage';
 type KycStep = 'documents' | 'bank' | 'review' | 'approved';
 
 export const KycScreen = ({ navigation }: { navigation: any }) => {
-    const { riderProfile, uploadKyc, refreshProfile, logout } = useAuth();
+    const { riderProfile, uploadKyc, refreshProfile, logout, isAuthenticated } = useAuth();
     const { showToast } = useToast();
+
+    if (!isAuthenticated || !riderProfile) {
+        return null;
+    }
 
     const [currentScreen, setCurrentScreen] = useState<KycStep>('documents');
     const [uploadStep, setUploadStep] = useState<number>(1); // 1: Aadhaar Front, 2: Aadhaar Back, 3: Driving Licence, 4: Vehicle RC

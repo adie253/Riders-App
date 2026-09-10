@@ -146,6 +146,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Fetch initial active delivery if authenticated
     const fetchCurrentState = useCallback(async () => {
         if (!isAuthenticated) {
+            setIsOnline(false);
             setIsInitialLoading(false);
             return;
         }
@@ -300,11 +301,9 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 });
             }
 
-            // Restore online status from local storage
-            const storedOnline = localStorage.getItem('rider_online') === 'true';
-            if (storedOnline) {
-                setIsOnline(true);
-            }
+            // Keep rider initially offline on startup/load
+            setIsOnline(false);
+            localStorage.setItem('rider_online', 'false');
         } catch (e) {
             console.error('Error fetching current active delivery:', e);
         } finally {
@@ -745,7 +744,46 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const arrivedRestaurant = async (): Promise<boolean> => {
         if (!activeDelivery) return false;
         try {
-            const success = await markArrivedPickup(activeDelivery.id);
+            let coords: { latitude: number; longitude: number } | null = null;
+
+            // Try navigator.geolocation first (Web API)
+            if (typeof navigator !== 'undefined' && navigator.geolocation) {
+                try {
+                    coords = await new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
+                        const timer = setTimeout(() => resolve(null), 3000);
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                clearTimeout(timer);
+                                resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+                            },
+                            () => {
+                                clearTimeout(timer);
+                                resolve(null);
+                            },
+                            { timeout: 3000, enableHighAccuracy: true }
+                        );
+                    });
+                } catch {
+                    coords = null;
+                }
+            }
+
+            // Fallback to Expo Location if navigator.geolocation didn't return coords
+            if (!coords) {
+                try {
+                    const { status } = await Location.getForegroundPermissionsAsync();
+                    if (status === 'granted') {
+                        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                        if (pos?.coords) {
+                            coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                        }
+                    }
+                } catch {
+                    // Location permission denied or error
+                }
+            }
+
+            const success = await markArrivedPickup(activeDelivery.id, coords);
             if (success) {
                 setActiveDelivery(prev => prev ? { ...prev, status: 'ARRIVED_PICKUP' } : null);
                 return true;

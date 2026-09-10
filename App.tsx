@@ -78,20 +78,7 @@ const AppNavigator = () => {
     );
   }
 
-  // Authenticated but registration details or KYC not approved -> KYC screen
-  if (!riderProfile || !isKycApproved(riderProfile)) {
-    return (
-      <>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Kyc" component={KycScreen} />
-          <Stack.Screen name="Profile" component={ProfileScreen} />
-        </Stack.Navigator>
-        <LanguageSelectionModal />
-      </>
-    );
-  }
-
-  // Authenticated and KYC approved -> Dashboard and full app navigator
+  // Authenticated -> Dashboard and full app navigator
   return (
     <>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
